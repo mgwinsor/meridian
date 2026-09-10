@@ -10,6 +10,8 @@ type MemoryRepository struct {
 	accounts map[ID]Account
 }
 
+var _ Repository = (*MemoryRepository)(nil)
+
 func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{
 		accounts: make(map[ID]Account),
@@ -25,7 +27,7 @@ func (r *MemoryRepository) Save(_ context.Context, account Account) error {
 	return nil
 }
 
-func (r *MemoryRepository) FindByID(_, id ID) (Account, error) {
+func (r *MemoryRepository) FindByID(_ context.Context, id ID) (Account, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

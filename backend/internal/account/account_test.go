@@ -1,6 +1,7 @@
 package account_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/mgwinsor/meridian/backend/internal/account"
@@ -46,6 +47,9 @@ func TestNew(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("New() expected error, got nil")
+				}
+				if !errors.Is(err, account.ErrInvalidName) {
+					t.Fatalf("New() error = %v, want ErrInvalidName", err)
 				}
 				return
 			}

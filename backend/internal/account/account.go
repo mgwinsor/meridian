@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var ErrInvalidName = errors.New("account name cannot be empty")
+
 type ID struct {
 	value uuid.UUID
 }
@@ -36,7 +38,7 @@ type Account struct {
 func New(id ID, name string) (Account, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return Account{}, errors.New("account name cannot be empty")
+		return Account{}, ErrInvalidName
 	}
 
 	return Account{ID: id, Name: name}, nil

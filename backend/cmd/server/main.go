@@ -11,7 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mgwinsor/meridian/backend/internal/app"
+	"github.com/mgwinsor/meridian/backend/internal/account"
+	"github.com/mgwinsor/meridian/backend/internal/health"
 )
 
 func main() {
@@ -20,11 +21,18 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	app := app.NewApplication(logger)
+	accountRepository := account.NewMemoryRepository()
+	accountService := account.NewService(accountRepository)
+	accountHandler := account.NewHandler(accountService)
+	healthHandler := health.NewHandler()
+
+	router := http.NewServeMux()
+	healthHandler.RegisterRoutes(router)
+	accountHandler.RegisterRoutes(router)
 
 	httpServer := &http.Server{
 		Addr:    ":" + strconv.Itoa(port),
-		Handler: app.Routes(),
+		Handler: router,
 	}
 
 	errChan := make(chan error, 1)
@@ -46,7 +54,7 @@ func main() {
 	case s := <-signalChan:
 		logger.Info("Captured shutdown signal", "signal", s.String())
 
-		app.IsShuttingDown.Store(true)
+		healthHandler.BeginShutdown()
 
 		const loadBalancerDeregistrationWindow = 5 * time.Second
 		time.Sleep(loadBalancerDeregistrationWindow)

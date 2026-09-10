@@ -22,7 +22,7 @@ func NewService(repository Repository) Service {
 	}
 }
 
-func (s Service) Create(ctx context.Context, name string) (Account, error) {
+func (s Service) CreateAccount(ctx context.Context, name string) (Account, error) {
 	account, err := New(NewID(), name)
 	if err != nil {
 		return Account{}, err
@@ -35,6 +35,6 @@ func (s Service) Create(ctx context.Context, name string) (Account, error) {
 	return account, nil
 }
 
-func (s Service) Get(ctx context.Context, id ID) (Account, error) {
+func (s Service) GetByID(ctx context.Context, id ID) (Account, error) {
 	return s.repository.FindByID(ctx, id)
 }
