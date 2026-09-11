@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mgwinsor/meridian/backend/internal/account"
+	"github.com/mgwinsor/meridian/backend/internal/cash"
 	"github.com/mgwinsor/meridian/backend/internal/health"
 )
 
@@ -24,11 +25,15 @@ func main() {
 	accountRepository := account.NewMemoryRepository()
 	accountService := account.NewService(accountRepository)
 	accountHandler := account.NewHandler(accountService)
+	cashRepository := cash.NewMemoryRepository()
+	cashService := cash.NewService(accountRepository, cashRepository)
+	cashHandler := cash.NewHandler(cashService)
 	healthHandler := health.NewHandler()
 
 	router := http.NewServeMux()
 	healthHandler.RegisterRoutes(router)
 	accountHandler.RegisterRoutes(router)
+	cashHandler.RegisterRoutes(router)
 
 	httpServer := &http.Server{
 		Addr:    ":" + strconv.Itoa(port),

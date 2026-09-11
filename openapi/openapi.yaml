@@ -1,0 +1,553 @@
+openapi: 3.1.0
+info:
+  title: Meridian Wealth Dashboard API
+  version: 0.1.0
+  description: |
+    Shared implementation contract for the account and current-cash workflows in
+    docs/product-design.md and docs/architecture.md (baseline v1.3).
+    Operation-level x-implementation-status distinguishes implemented operations
+    from planned ones. GET /api/v1/accounts is a proposed next vertical slice;
+    the current server returns 405 for it. See README.md beside this file for
+    scope, implementation sequencing, and deferred product decisions.
+
+    This is the current unauthenticated, single-process personal workspace API.
+    Every operation is public; no credentials, user identity, ownership checks,
+    rate limiting, or correlation-ID headers are implemented or promised.
+    Authentication must be designed before introducing multi-user access.
+    Storage is currently in-memory and is lost on process restart.
+
+    Account IDs returned by the server are lowercase hyphenated UUIDs. Clients
+    should send this canonical representation. Names are trimmed using Go
+    strings.TrimSpace, must remain nonempty, and need not be unique.
+
+    Money is transmitted as exact non-negative decimal strings, never JSON
+    numbers. USD and SGD have two minor-unit digits; VND has zero. The maximum
+    value is 9223372036854775807 minor units. No timestamps, historical balances,
+    FX conversion, or inferred reporting totals are part of these resources.
+
+    Collections are complete, unpaginated snapshots with deterministic ordering.
+    No filtering, sorting parameters, or pagination parameters are supported;
+    existing handlers ignore query parameters. Empty collections return arrays,
+    never null. Requests and resources have no semantically nullable fields.
+
+    Existing handlers decode one JSON value, ignore unknown object members, and
+    do not enforce Content-Type or reject trailing JSON values. Clients must
+    send a single application/json object using the documented fields. Missing
+    or null required string fields are treated as empty and fail validation.
+    Tightening this decoder behavior requires an explicit compatibility change.
+
+    Successful product responses use application/json. Errors preserve the
+    shipped text/plain; charset=utf-8 format, including a trailing newline.
+    There is no JSON error envelope or structured field-violation payload.
+    Named error schemas enumerate exact wire messages for client error states.
+    Unsupported methods on a known path return 405 with Allow; unknown paths
+    return 404 with the Go router body "404 page not found\n". Go also serves
+    HEAD for each implemented GET, with the same status and no response body.
+
+    Writes are synchronous. Account creation is not idempotent: retrying it
+    creates another account even when the name is identical. Cash PUT is an
+    idempotent replacement by (account ID, currency), with last completed save
+    winning concurrent writes. There are no ETag, If-Match, or Idempotency-Key
+    guarantees. Clients should reload cash after uncertain or concurrent writes.
+servers:
+  - url: /
+    description: API origin; use http://localhost:8080 for the current local Go server.
+security: []
+tags:
+  - name: Accounts
+    description: Create and discover named containers for assets.
+  - name: Cash
+    description: Set and view current cash balances within an account.
+  - name: Health
+    description: Process liveness and shutdown readiness.
+paths:
+  /api/v1/accounts:
+    post:
+      tags: [Accounts]
+      operationId: createAccount
+      summary: Create an account
+      description: |
+        Trims the name and creates a new server-generated UUID. Duplicate names
+        are allowed. Returns the representation without a Location header.
+        Do not automatically retry after an ambiguous network failure.
+      x-implementation-status: implemented
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+            examples:
+              trimmedName:
+                value: {name: '  HSBC Premier  '}
+      responses:
+        '201':
+          description: Account created; name has been trimmed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              example:
+                id: 123e4567-e89b-42d3-a456-426614174000
+                name: HSBC Premier
+        '400':
+          description: JSON decoding failed, or the name is missing, null, empty, or whitespace-only.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                $ref: '#/components/schemas/CreateAccountError'
+              examples:
+                malformedRequest:
+                  value: "invalid request\n"
+                invalidName:
+                  value: "account name cannot be empty\n"
+        '405':
+          $ref: '#/components/responses/AccountsMethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags: [Accounts]
+      operationId: listAccounts
+      summary: List all accounts
+      description: |
+        Planned next-slice operation for discovering accounts when opening the
+        frontend. The current server does not implement this method and returns
+        405. Implement the account repository/service list capability before
+        enabling this flow. The target response contains every account, ordered
+        lexically by canonical UUID ascending; names are not unique sort keys.
+        No query parameters are supported. Return {"accounts": []} when empty.
+      x-implementation-status: planned
+      security: []
+      responses:
+        '200':
+          description: Complete account collection, including an empty collection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountList'
+              examples:
+                accounts:
+                  value:
+                    accounts:
+                      - id: 123e4567-e89b-42d3-a456-426614174000
+                        name: HSBC Premier
+                empty:
+                  value: {accounts: []}
+        '405':
+          $ref: '#/components/responses/AccountsMethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/accounts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+    get:
+      tags: [Accounts]
+      operationId: getAccountById
+      summary: Retrieve an account by ID
+      description: Validates the ID before looking up the account.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          description: Account found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              example:
+                id: 123e4567-e89b-42d3-a456-426614174000
+                name: HSBC Premier
+        '400':
+          $ref: '#/components/responses/InvalidAccountID'
+        '404':
+          $ref: '#/components/responses/AccountNotFound'
+        '405':
+          $ref: '#/components/responses/ReadMethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/accounts/{id}/cash:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+    get:
+      tags: [Cash]
+      operationId: listCashBalances
+      summary: List current cash balances for an account
+      description: |
+        Verifies account existence and returns all its balances sorted by
+        currency ascending (SGD, USD, VND), with at most one per currency.
+        An existing account with no balances returns 200 with an empty array;
+        a missing account returns 404. Zero balances remain in the collection.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          description: Complete current-cash collection for the account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashBalanceList'
+              examples:
+                multipleCurrencies:
+                  value:
+                    balances:
+                      - {currency: SGD, amount: '2500.00'}
+                      - {currency: USD, amount: '1234.56'}
+                      - {currency: VND, amount: '1000000'}
+                empty:
+                  value: {balances: []}
+        '400':
+          $ref: '#/components/responses/InvalidAccountID'
+        '404':
+          $ref: '#/components/responses/AccountNotFound'
+        '405':
+          $ref: '#/components/responses/ReadMethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/accounts/{id}/cash/{currency}:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+      - $ref: '#/components/parameters/CashCurrency'
+    put:
+      tags: [Cash]
+      operationId: setCashBalance
+      summary: Create or replace a current cash balance
+      description: |
+        Replaces the balance identified by account ID and normalized currency;
+        both first creation and replacement return 200. Zero is a stored amount,
+        not deletion. The response contains currency and amount, not account ID.
+
+        Validation order is account-ID syntax, currency, JSON decoding, amount,
+        then account existence. Consequently invalid amounts return 400 even
+        when the syntactically valid account ID does not exist.
+
+        After trimming Go Unicode whitespace, USD/SGD input must match
+        ^[0-9]+(\.[0-9]{1,2})?$ and VND input must match ^[0-9]+$.
+        Leading zeroes are accepted. Signs, exponents, grouping separators,
+        missing integer/fraction digits, and excess precision are rejected.
+        USD/SGD cannot exceed 92233720368547758.07; VND cannot exceed
+        9223372036854775807. These cross-parameter and exact numeric-string
+        limits must be checked by the server and forms in addition to schema
+        validation. Values must never pass through floating-point arithmetic.
+      x-implementation-status: implemented
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetCashBalanceRequest'
+            examples:
+              usd:
+                summary: Set USD or SGD with two decimal places
+                value: {amount: '1234.56'}
+              vnd:
+                summary: Set VND with no fractional digits
+                value: {amount: '1000000'}
+              zero:
+                summary: Replace the current amount with zero
+                value: {amount: '0'}
+              normalized:
+                summary: Whitespace and leading zeroes are accepted
+                value: {amount: ' 0012.3 '}
+      responses:
+        '200':
+          description: Balance created or replaced; amount and currency are canonical.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashBalance'
+              examples:
+                usd:
+                  value: {currency: USD, amount: '1234.56'}
+                vnd:
+                  value: {currency: VND, amount: '1000000'}
+                zero:
+                  value: {currency: USD, amount: '0.00'}
+                normalized:
+                  value: {currency: SGD, amount: '12.30'}
+        '400':
+          description: Invalid account ID, unsupported currency, JSON decoding failure, or invalid amount.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                $ref: '#/components/schemas/SetCashBalanceError'
+              examples:
+                invalidID:
+                  value: "invalid account ID\n"
+                unsupportedCurrency:
+                  summary: For example, currency GBP
+                  value: "unsupported currency\n"
+                malformedRequest:
+                  summary: For example, a JSON number instead of an amount string
+                  value: "invalid request\n"
+                invalidAmount:
+                  summary: For example, -1.00, 1.001 USD, or 1.00 VND
+                  value: "invalid amount\n"
+        '404':
+          $ref: '#/components/responses/AccountNotFound'
+        '405':
+          description: Unsupported method on this path (only PUT is allowed).
+          headers:
+            Allow:
+              required: true
+              schema: {type: string, const: PUT}
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                $ref: '#/components/schemas/MethodNotAllowedError'
+              example: "Method Not Allowed\n"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /livez:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Check process liveness
+      description: Returns OK while serving, including during graceful shutdown draining.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Healthy'
+        '405':
+          $ref: '#/components/responses/ReadMethodNotAllowed'
+  /readyz:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Check readiness to receive traffic
+      description: |
+        Returns OK normally and 503 once shutdown starts. This checks process
+        shutdown state only, not storage or external dependencies. No Retry-After
+        header is returned; an instance entering shutdown will not recover.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Healthy'
+        '405':
+          $ref: '#/components/responses/ReadMethodNotAllowed'
+        '503':
+          description: Graceful shutdown has begun; body has no trailing newline.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                $ref: '#/components/schemas/ReadinessUnavailable'
+              example: shutting down
+components:
+  parameters:
+    AccountID:
+      name: id
+      in: path
+      required: true
+      description: |
+        Account identity. Use the lowercase hyphenated UUID returned by create.
+        For compatibility the current google/uuid parser also accepts uppercase,
+        32 hexadecimal digits, urn:uuid-prefixed, and brace-wrapped UUID forms.
+        All parseable UUIDs (including the zero UUID) proceed to lookup; absence
+        returns 404. Invalid syntax returns 400. The pattern models supported
+        input spellings rather than restricting input to format uuid.
+      schema:
+        type: string
+        pattern: '^(?:[0-9a-fA-F]{32}|(?:[uU][rR][nN]:[uU][uU][iI][dD]:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\})$'
+      example: 123e4567-e89b-42d3-a456-426614174000
+    CashCurrency:
+      name: currency
+      in: path
+      required: true
+      description: |
+        USD, SGD, or VND. The server trims Go Unicode whitespace and normalizes
+        case. Clients should send uppercase ISO 4217 codes. Percent-encode any
+        whitespace in a URL. Unsupported codes return 400.
+      schema:
+        type: string
+        pattern: '^[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*(?:[uU][sS][dD]|[sS][gG][dD]|[vV][nN][dD])[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$'
+      example: USD
+  schemas:
+    CreateAccountRequest:
+      type: object
+      description: |
+        Only name is consumed. Unknown members are ignored by the existing
+        decoder; they are not persisted. Validation applies after trimming Go
+        Unicode whitespace. There is no implemented maximum name length.
+      additionalProperties: true
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: '[^\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]'
+          description: Human-readable name containing at least one non-whitespace character.
+    Account:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          readOnly: true
+          description: Server-generated stable account identity.
+        name:
+          type: string
+          minLength: 1
+          description: Name with leading and trailing Go Unicode whitespace removed.
+    AccountList:
+      type: object
+      additionalProperties: false
+      required: [accounts]
+      properties:
+        accounts:
+          type: array
+          uniqueItems: true
+          description: All accounts ordered by canonical UUID ascending, each ID appearing once.
+          items:
+            $ref: '#/components/schemas/Account'
+    SetCashBalanceRequest:
+      type: object
+      additionalProperties: true
+      description: Only amount is consumed; unknown members are ignored, not persisted.
+      required: [amount]
+      properties:
+        amount:
+          type: string
+          minLength: 1
+          pattern: '^[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*[0-9]+(?:\.[0-9]{1,2})?[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$'
+          description: |
+            Exact non-negative decimal amount. The currency path parameter
+            further forbids any fractional part for VND. Maximum after scaling
+            is 9223372036854775807 minor units; compare using integer/decimal
+            arithmetic. Whitespace and leading zeroes are accepted; no input
+            length cap is imposed by the current implementation.
+    CashBalance:
+      description: |
+        Current cash for the account in the request path; the currency is the
+        account-local key. Amount is canonical and at most int64 max minor units.
+      oneOf:
+        - $ref: '#/components/schemas/TwoDecimalCashBalance'
+        - $ref: '#/components/schemas/WholeUnitCashBalance'
+    TwoDecimalCashBalance:
+      type: object
+      additionalProperties: false
+      required: [currency, amount]
+      description: USD or SGD cash with two fractional digits and a maximum of 92233720368547758.07.
+      properties:
+        currency:
+          type: string
+          enum: [USD, SGD]
+        amount:
+          type: string
+          pattern: '^(0|[1-9][0-9]{0,16})\.[0-9]{2}$'
+          maxLength: 20
+          description: Canonical exact amount; the numeric-string upper bound also requires decimal validation.
+    WholeUnitCashBalance:
+      type: object
+      additionalProperties: false
+      required: [currency, amount]
+      description: VND cash with no fractional digits and a maximum of 9223372036854775807.
+      properties:
+        currency:
+          type: string
+          const: VND
+        amount:
+          type: string
+          pattern: '^(0|[1-9][0-9]{0,18})$'
+          maxLength: 19
+          description: Canonical exact amount; the numeric-string upper bound also requires integer validation.
+    CashBalanceList:
+      type: object
+      additionalProperties: false
+      required: [balances]
+      properties:
+        balances:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          description: Ordered by currency ascending, at most one balance per currency.
+          items:
+            $ref: '#/components/schemas/CashBalance'
+    CreateAccountError:
+      type: string
+      enum: ["invalid request\n", "account name cannot be empty\n"]
+      description: Decode failure or name validation failure; wire text includes a newline.
+    SetCashBalanceError:
+      type: string
+      enum: ["invalid account ID\n", "unsupported currency\n", "invalid request\n", "invalid amount\n"]
+      description: Validation failure; exact message identifies the input to correct.
+    InvalidAccountIDError:
+      type: string
+      const: "invalid account ID\n"
+    AccountNotFoundError:
+      type: string
+      const: "account not found\n"
+    InternalServerError:
+      type: string
+      const: "internal server error\n"
+    MethodNotAllowedError:
+      type: string
+      const: "Method Not Allowed\n"
+    HealthOK:
+      type: string
+      const: OK
+    ReadinessUnavailable:
+      type: string
+      const: shutting down
+  responses:
+    InvalidAccountID:
+      description: The path ID cannot be parsed as an account UUID.
+      content:
+        text/plain; charset=utf-8:
+          schema:
+            $ref: '#/components/schemas/InvalidAccountIDError'
+          example: "invalid account ID\n"
+    AccountNotFound:
+      description: The UUID is syntactically valid but no account exists with that identity.
+      content:
+        text/plain; charset=utf-8:
+          schema:
+            $ref: '#/components/schemas/AccountNotFoundError'
+          example: "account not found\n"
+    InternalServerError:
+      description: Unexpected account or cash repository failure; internal details are not exposed.
+      content:
+        text/plain; charset=utf-8:
+          schema:
+            $ref: '#/components/schemas/InternalServerError'
+          example: "internal server error\n"
+    AccountsMethodNotAllowed:
+      description: |
+        Unsupported method on the collection path. Before listAccounts is
+        implemented, Allow is POST (including when GET is attempted). Once the
+        planned GET is implemented, Allow is GET, HEAD, POST. Supported methods
+        do not otherwise return this response.
+      headers:
+        Allow:
+          required: true
+          schema:
+            type: string
+            enum: [POST, 'GET, HEAD, POST']
+      content:
+        text/plain; charset=utf-8:
+          schema:
+            $ref: '#/components/schemas/MethodNotAllowedError'
+          example: "Method Not Allowed\n"
+    ReadMethodNotAllowed:
+      description: Unsupported method on this path; GET and HEAD are allowed.
+      headers:
+        Allow:
+          required: true
+          schema: {type: string, const: 'GET, HEAD'}
+      content:
+        text/plain; charset=utf-8:
+          schema:
+            $ref: '#/components/schemas/MethodNotAllowedError'
+          example: "Method Not Allowed\n"
+    Healthy:
+      description: Process check passed; body has no trailing newline.
+      content:
+        text/plain; charset=utf-8:
+          schema:
+            $ref: '#/components/schemas/HealthOK'
+          example: OK

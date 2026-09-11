@@ -1,0 +1,9 @@
+extends:
+  - recommended
+rules:
+  no-unused-components: error
+  operation-operationId: error
+  operation-summary: error
+  security-defined: error
+  # The project has no declared license; do not invent a license for the contract.
+  info-license: off

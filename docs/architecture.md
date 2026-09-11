@@ -1,6 +1,6 @@
 # Wealth Dashboard — Technical Architecture
 
-**Status:** Active implementation baseline (v1.2)  
+**Status:** Active implementation baseline (v1.3)
 **Date:** 11 September 2026  
 **Companion:** [Product Design & MVP Requirements](product-design.md)
 
@@ -8,7 +8,7 @@
 
 Build the application in small vertical slices with explicit domain boundaries and minimal abstractions.
 
-The implemented backend contains an `account` feature slice and an operational `health` package. Broader architecture for cash, holdings, valuation, allocation, persistent storage, or deployment remains deferred until those requirements are implemented.
+The implemented backend contains `account`, `cash`, `currency`, and `money` domain packages plus an operational `health` package. Broader architecture for other holdings, valuation, allocation, persistent storage, or deployment remains deferred until those requirements are implemented.
 
 The guiding rule is:
 
@@ -20,10 +20,13 @@ The backend uses a feature-oriented package structure: packages communicate the 
 
 ```text
 internal/account
+internal/cash
+internal/currency
+internal/money
 internal/health
 ```
 
-Hexagonal principles apply at the account storage boundary. Account application logic depends on the account-owned `Repository` interface rather than the concrete in-memory implementation. The codebase does not use a repository-wide `domain/`, `ports/`, `adapters/`, and `infrastructure/` hierarchy; feature cohesion takes priority over architecture-layer folders.
+Hexagonal principles apply at the account and cash storage boundaries. Application logic depends on feature-owned repository interfaces rather than concrete in-memory implementations. The codebase does not use a repository-wide `domain/`, `ports/`, `adapters/`, and `infrastructure/` hierarchy; feature cohesion takes priority over architecture-layer folders.
 
 ## 3. Current backend structure
 
@@ -39,9 +42,21 @@ backend/
 │   │   ├── repository_memory.go
 │   │   ├── service.go
 │   │   └── *_test.go
-│   └── health/
-│       ├── health.go
-│       └── health_test.go
+│   ├── cash/
+│   │   ├── cash.go
+│   │   ├── http.go
+│   │   ├── repository_memory.go
+│   │   ├── service.go
+│   │   └── *_test.go
+│   ├── currency/
+│   │   ├── currency.go
+│   │   └── currency_test.go
+│   ├── health/
+│   │   ├── health.go
+│   │   └── health_test.go
+│   └── money/
+│       ├── amount.go
+│       └── amount_test.go
 ├── go.mod
 └── go.sum
 ```
@@ -85,7 +100,40 @@ The wrapped value is unexported, so consumers use `account.ID` without depending
 
 There is no shared global ID type. A future entity can define a distinct identity type even if it uses the same underlying representation.
 
-## 5. Account slice and dependency flow
+## 5. Currency and money values
+
+`currency.Code` is an opaque, comparable value supporting USD, SGD, and VND. `Parse` trims and uppercases external values. `MinorUnitDigits` returns two for USD and SGD and zero for VND; a zero or otherwise invalid code returns `currency.ErrUnsupported`.
+
+`money.Amount` combines an exported `Currency` code with an exact, non-negative `int64` minor-unit value. `money.Parse` accepts decimal strings, validates their syntax and currency precision, rejects overflow and negative values, and returns `money.ErrInvalidAmount` for invalid input. `Amount.String` emits the canonical currency-specific representation. The representation and constructors keep floating-point values out of the domain and HTTP boundary.
+
+## 6. Cash balance slice
+
+`cash.Balance` contains an `account.ID` and `money.Amount`. A balance has no generated identity: the in-memory repository keys it by account ID and currency, so `Save` replaces the previous current balance for that pair.
+
+The cash dependency flow is:
+
+```text
+HTTP request
+    ↓
+cash.Handler
+    ↓
+cash.Service ──→ cash.Repository
+    │
+    └──────────→ cash.AccountFinder ──→ account.MemoryRepository
+```
+
+The service verifies account existence before reading or writing cash. `ListBalances` sorts results lexically by currency code, making the HTTP collection deterministic. The in-memory repository protects its nested account/currency maps with `sync.RWMutex` and returns an allocated empty slice when no balances exist.
+
+The HTTP API is:
+
+| Route | Success behavior |
+|---|---|
+| `PUT /api/v1/accounts/{id}/cash/{currency}` | `200` with the created or replaced balance |
+| `GET /api/v1/accounts/{id}/cash` | `200` with `{"balances": [...]}` |
+
+Amounts are JSON strings. Malformed account IDs, unsupported currencies, malformed requests, and invalid amounts return 400. A missing account returns 404. Unexpected account or cash repository errors return 500, and method-aware routing supplies 405 responses.
+
+## 7. Account slice and dependency flow
 
 The account slice implements create-account and retrieve-account-by-ID:
 
@@ -103,7 +151,7 @@ account.MemoryRepository
 
 The HTTP adapter converts transport values and errors, the service coordinates use cases, and the repository owns storage. Request contexts flow from HTTP through the service to repository calls.
 
-## 6. Application service
+## 8. Account application service
 
 The implemented service API is:
 
@@ -121,7 +169,7 @@ func (s Service) GetByID(ctx context.Context, id ID) (Account, error)
 
 The domain constructor accepts an ID separately because constructing or reconstructing a domain entity may need to preserve an existing identity; callers of `Service.CreateAccount` do not supply one.
 
-## 7. Repository boundary and implementation
+## 9. Account repository boundary and implementation
 
 The account-owned storage contract is declared in `service.go`:
 
@@ -138,9 +186,9 @@ var ErrNotFound = errors.New("account not found")
 
 Storage is process-local and ephemeral. There is a PostgreSQL service in the root `compose.yaml`, but the backend has no PostgreSQL driver, repository implementation, migrations, or database wiring and does not currently use that service.
 
-## 8. Account HTTP adapter
+## 10. Account HTTP adapter
 
-### 8.1 Handler and route registration
+### 10.1 Handler and route registration
 
 HTTP behavior is grouped in `account.Handler`:
 
@@ -164,7 +212,7 @@ GET  /api/v1/accounts/{id}
 
 An unsupported method on a matched path is handled by `http.ServeMux` as `405 Method Not Allowed`.
 
-### 8.2 Transport representations
+### 10.2 Transport representations
 
 The domain entity has no JSON tags. The HTTP adapter uses private request and response DTOs:
 
@@ -181,7 +229,7 @@ type accountResponse struct {
 
 Successful responses set `Content-Type: application/json`. Account IDs are serialized through `ID.String()`.
 
-### 8.3 Status and error mapping
+### 10.3 Status and error mapping
 
 | Operation or condition | HTTP status | Response |
 |---|---:|---|
@@ -196,7 +244,7 @@ Successful responses set `Content-Type: application/json`. Account IDs are seria
 
 Error responses use `http.Error`, so they are plain text. Repository details are not exposed for unexpected failures.
 
-## 9. Health adapter
+## 11. Health adapter
 
 The `health` package owns liveness and readiness independently of the versioned product API:
 
@@ -215,7 +263,7 @@ It registers:
 
 Responses use `text/plain; charset=utf-8`. Shutdown state is held in an `atomic.Bool`, allowing concurrent health requests to observe the transition safely. Unsupported methods on these routes receive HTTP 405 from `http.ServeMux`.
 
-## 10. Composition root and process lifecycle
+## 12. Composition root and process lifecycle
 
 `cmd/server/main.go` assembles concrete dependencies:
 
@@ -223,11 +271,15 @@ Responses use `text/plain; charset=utf-8`. Shutdown state is held in an `atomic.
 accountRepository := account.NewMemoryRepository()
 accountService := account.NewService(accountRepository)
 accountHandler := account.NewHandler(accountService)
+cashRepository := cash.NewMemoryRepository()
+cashService := cash.NewService(accountRepository, cashRepository)
+cashHandler := cash.NewHandler(cashService)
 healthHandler := health.NewHandler()
 
 router := http.NewServeMux()
 healthHandler.RegisterRoutes(router)
 accountHandler.RegisterRoutes(router)
+cashHandler.RegisterRoutes(router)
 ```
 
 The server currently:
@@ -243,7 +295,7 @@ The server currently:
 
 Liveness remains available during the drain period. Port, environment, deregistration delay, and drain timeout are compile-time constants rather than configuration inputs.
 
-## 11. Testing strategy and current coverage
+## 13. Testing strategy and current coverage
 
 Tests use only the Go standard library. Table-driven tests are used where several cases share the same behavior.
 
@@ -251,6 +303,9 @@ The package choice reflects the level under test:
 
 - `account_test` exercises the exported domain constructor and in-memory repository as an external consumer;
 - `account` tests the service and HTTP adapter with package-private stubs and transport types;
+- `cash_test` exercises the in-memory cash repository as an external consumer;
+- `cash` tests service coordination and the HTTP adapter with package-private stubs;
+- `currency_test` and `money_test` exercise their value types as external consumers;
 - `health_test` exercises the health package through its exported API.
 
 Current tests cover:
@@ -261,18 +316,22 @@ Current tests cover:
 - service validation before save and repository-error propagation;
 - create-then-retrieve through the registered HTTP routes;
 - malformed JSON, invalid names, malformed IDs, missing accounts, repository failures, and unsupported account methods;
+- currency normalization and minor-unit precision;
+- exact amount parsing, canonical formatting, invalid values, negatives, excessive precision, and overflow;
+- cash replacement, account isolation, empty collections, and concurrent repository access;
+- account validation, deterministic currency ordering, and cash dependency-error propagation;
+- create-account, set-and-replace balances, and list-balances through registered HTTP routes;
+- cash HTTP validation, missing-account behavior, repository failures, and unsupported methods;
 - normal liveness/readiness, readiness during shutdown, and unsupported health methods.
 
 `NewID` and `ParseID` are exercised indirectly by HTTP and domain tests; they do not currently have dedicated tests.
 
-## 12. Decisions intentionally deferred
+## 14. Decisions intentionally deferred
 
 The backend does not yet fix an architecture for:
 
 - persistent repository wiring, migrations, or a SQL schema;
-- `currency.Code` or `country.Code`;
-- money or decimal value types;
-- cash balances;
+- `country.Code`;
 - account type, institution metadata, or retirement classification;
 - instruments and holdings;
 - valuation and FX;
@@ -284,6 +343,6 @@ The backend does not yet fix an architecture for:
 
 The repository contains a frontend scaffold, but frontend product architecture and integration with the account API remain outside the implemented backend slice.
 
-## 13. Current baseline and next change
+## 15. Current baseline and next change
 
-The account create/retrieve vertical slice, in-memory repository, HTTP routing, operational health checks, and graceful shutdown are implemented and tested. The next product story should determine the next domain concept or infrastructure boundary rather than expanding the model speculatively.
+The account create/retrieve and cash set/list vertical slices, their in-memory repositories, HTTP routing, operational health checks, and graceful shutdown are implemented and tested. The next product story should determine whether to expose these capabilities through the frontend, persist them durably, or introduce another asset concept rather than expanding the model speculatively.
