@@ -38,3 +38,15 @@ func (r *MemoryRepository) FindByID(_ context.Context, id ID) (Account, error) {
 
 	return account, nil
 }
+
+func (r *MemoryRepository) List(_ context.Context) ([]Account, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	accounts := make([]Account, 0, len(r.accounts))
+	for _, account := range r.accounts {
+		accounts = append(accounts, account)
+	}
+
+	return accounts, nil
+}

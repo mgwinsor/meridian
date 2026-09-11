@@ -36,3 +36,54 @@ func TestMemoryRepositoryFindByIDNotFound(t *testing.T) {
 		t.Fatalf("FindByID() error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestMemoryRepositoryList(t *testing.T) {
+	repository := account.NewMemoryRepository()
+	first, err := account.New(account.NewID(), "Primary")
+	if err != nil {
+		t.Fatalf("New() unexpected error: %v", err)
+	}
+	second, err := account.New(account.NewID(), "Savings")
+	if err != nil {
+		t.Fatalf("New() unexpected error: %v", err)
+	}
+
+	for _, item := range []account.Account{first, second} {
+		if err := repository.Save(context.Background(), item); err != nil {
+			t.Fatalf("Save() unexpected error: %v", err)
+		}
+	}
+
+	got, err := repository.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("List() returned %d accounts, want 2", len(got))
+	}
+
+	gotByID := make(map[string]account.Account, len(got))
+	for _, item := range got {
+		gotByID[item.ID.String()] = item
+	}
+	for _, want := range []account.Account{first, second} {
+		if gotByID[want.ID.String()] != want {
+			t.Errorf("List() missing account %#v", want)
+		}
+	}
+}
+
+func TestMemoryRepositoryListEmpty(t *testing.T) {
+	repository := account.NewMemoryRepository()
+
+	got, err := repository.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() unexpected error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("List() returned nil, want empty slice")
+	}
+	if len(got) != 0 {
+		t.Fatalf("List() returned %d accounts, want 0", len(got))
+	}
+}

@@ -6,9 +6,8 @@ info:
     Shared implementation contract for the account and current-cash workflows in
     docs/product-design.md and docs/architecture.md (baseline v1.3).
     Operation-level x-implementation-status distinguishes implemented operations
-    from planned ones. GET /api/v1/accounts is a proposed next vertical slice;
-    the current server returns 405 for it. See README.md beside this file for
-    scope, implementation sequencing, and deferred product decisions.
+    from planned ones. See README.md beside this file for scope, implementation
+    sequencing, and deferred product decisions.
 
     This is the current unauthenticated, single-process personal workspace API.
     Every operation is public; no credentials, user identity, ownership checks,
@@ -111,13 +110,10 @@ paths:
       operationId: listAccounts
       summary: List all accounts
       description: |
-        Planned next-slice operation for discovering accounts when opening the
-        frontend. The current server does not implement this method and returns
-        405. Implement the account repository/service list capability before
-        enabling this flow. The target response contains every account, ordered
-        lexically by canonical UUID ascending; names are not unique sort keys.
-        No query parameters are supported. Return {"accounts": []} when empty.
-      x-implementation-status: planned
+        Returns every account, ordered lexically by canonical UUID ascending;
+        names are not unique sort keys. No query parameters are supported.
+        Return {"accounts": []} when empty.
+      x-implementation-status: implemented
       security: []
       responses:
         '200':
@@ -518,10 +514,8 @@ components:
           example: "internal server error\n"
     AccountsMethodNotAllowed:
       description: |
-        Unsupported method on the collection path. Before listAccounts is
-        implemented, Allow is POST (including when GET is attempted). Once the
-        planned GET is implemented, Allow is GET, HEAD, POST. Supported methods
-        do not otherwise return this response.
+        Unsupported method on the collection path. Allow is GET, HEAD, POST.
+        Supported methods do not otherwise return this response.
       headers:
         Allow:
           required: true

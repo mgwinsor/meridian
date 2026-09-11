@@ -11,7 +11,7 @@ currency, money, and health code and the scenarios in `hurl/`.
 | User flow | Operation | Status |
 | --- | --- | --- |
 | Enter a named account | `POST /api/v1/accounts` | Implemented |
-| Discover accounts when opening the application | `GET /api/v1/accounts` | Planned |
+| Discover accounts when opening the application | `GET /api/v1/accounts` | Implemented |
 | Open an account | `GET /api/v1/accounts/{id}` | Implemented |
 | View current cash in an account | `GET /api/v1/accounts/{id}/cash` | Implemented |
 | Enter/correct cash, including replacing it with zero | `PUT /api/v1/accounts/{id}/cash/{currency}` | Implemented |
@@ -19,13 +19,10 @@ currency, money, and health code and the scenarios in `hurl/`.
 | Check readiness | `GET /readyz` | Implemented |
 
 Each operation has an `x-implementation-status` marker. **Planned does not mean
-available on the running server.** The account list is the one new endpoint
-proposed here: it enables the minimal account/cash frontend contemplated by
-product-design §9. Its contract deliberately uses the existing account resource,
-not speculative account metadata. Backend work requires repository enumeration,
-service ordering, and HTTP registration; enable frontend discovery after that
-slice is delivered. Durable storage is a separate implementation concern and
-does not require a new endpoint.
+available on the running server.** The account list enables the minimal
+account/cash frontend contemplated by product-design §9. Its contract deliberately
+uses the existing account resource, not speculative account metadata. Durable
+storage is a separate implementation concern and does not require a new endpoint.
 
 ## Binding decisions for this scope
 

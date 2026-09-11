@@ -53,6 +53,63 @@ func TestAccountRoutes(t *testing.T) {
 	if !strings.Contains(getResponse.Body.String(), `"name":"Primary"`) {
 		t.Errorf("GET body = %q, want created account", getResponse.Body.String())
 	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
+	listResponse := httptest.NewRecorder()
+	mux.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf(
+			"list GET status = %d, want %d; body = %q",
+			listResponse.Code,
+			http.StatusOK,
+			listResponse.Body.String(),
+		)
+	}
+
+	var listed accountsResponse
+	if err := json.NewDecoder(listResponse.Body).Decode(&listed); err != nil {
+		t.Fatalf("decode list GET response: %v", err)
+	}
+	if len(listed.Accounts) != 1 || listed.Accounts[0] != created {
+		t.Errorf("list GET accounts = %#v, want [%#v]", listed.Accounts, created)
+	}
+}
+
+func TestListAccountsReturnsEmptyArray(t *testing.T) {
+	handler := NewHandler(NewService(NewMemoryRepository()))
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %q", response.Code, http.StatusOK, response.Body.String())
+	}
+	if response.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", response.Header().Get("Content-Type"))
+	}
+	if response.Body.String() != "{\"accounts\":[]}\n" {
+		t.Errorf("body = %q, want empty accounts array", response.Body.String())
+	}
+}
+
+func TestAccountCollectionUnsupportedMethodIncludesAllowedMethods(t *testing.T) {
+	handler := NewHandler(NewService(NewMemoryRepository()))
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	request := httptest.NewRequest(http.MethodDelete, "/api/v1/accounts", nil)
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d; body = %q", response.Code, http.StatusMethodNotAllowed, response.Body.String())
+	}
+	if response.Header().Get("Allow") != "GET, HEAD, POST" {
+		t.Errorf("Allow = %q, want %q", response.Header().Get("Allow"), "GET, HEAD, POST")
+	}
 }
 
 func TestAccountHTTPErrorResponses(t *testing.T) {
@@ -115,6 +172,17 @@ func TestAccountHTTPErrorResponses(t *testing.T) {
 			repository: &stubRepository{
 				findByID: func(context.Context, ID) (Account, error) {
 					return Account{}, repositoryErr
+				},
+			},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:   "list repository error",
+			method: http.MethodGet,
+			path:   "/api/v1/accounts",
+			repository: &stubRepository{
+				list: func(context.Context) ([]Account, error) {
+					return nil, repositoryErr
 				},
 			},
 			wantStatus: http.StatusInternalServerError,
