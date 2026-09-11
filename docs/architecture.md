@@ -1,6 +1,6 @@
 # Wealth Dashboard — Technical Architecture
 
-**Status:** Active implementation baseline (v1.3)
+**Status:** Active implementation baseline (v1.4)
 **Date:** 11 September 2026  
 **Companion:** [Product Design & MVP Requirements](product-design.md)
 
@@ -8,7 +8,9 @@
 
 Build the application in small vertical slices with explicit domain boundaries and minimal abstractions.
 
-The implemented backend contains `account`, `cash`, `currency`, and `money` domain packages plus an operational `health` package. Broader architecture for other holdings, valuation, allocation, persistent storage, or deployment remains deferred until those requirements are implemented.
+The current account and cash application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `currency`, and `money` domain packages plus an operational `health` package.
+
+Storage is still process-local and in memory. Broader architecture for other holdings, valuation, allocation, persistent storage, authentication, or deployment remains deferred until one of those requirements becomes the next vertical slice.
 
 The guiding rule is:
 
@@ -135,7 +137,7 @@ Amounts are JSON strings. Malformed account IDs, unsupported currencies, malform
 
 ## 7. Account slice and dependency flow
 
-The account slice implements create-account and retrieve-account-by-ID:
+The account slice implements create-account, list-accounts, and retrieve-account-by-ID:
 
 ```text
 HTTP request
@@ -163,9 +165,10 @@ type Service struct {
 func NewService(repository Repository) Service
 func (s Service) CreateAccount(ctx context.Context, name string) (Account, error)
 func (s Service) GetByID(ctx context.Context, id ID) (Account, error)
+func (s Service) ListAccounts(ctx context.Context) ([]Account, error)
 ```
 
-`CreateAccount` generates an ID, calls `New` to normalize and validate the account, and saves only a valid account. It returns constructor and repository errors unchanged. `GetByID` delegates to the repository and also propagates its result unchanged.
+`CreateAccount` generates an ID, calls `New` to normalize and validate the account, and saves only a valid account. It returns constructor and repository errors unchanged. `GetByID` delegates to the repository and also propagates its result unchanged. `ListAccounts` obtains the complete repository collection and sorts it lexically by canonical account ID so API responses remain deterministic.
 
 The domain constructor accepts an ID separately because constructing or reconstructing a domain entity may need to preserve an existing identity; callers of `Service.CreateAccount` do not supply one.
 
@@ -177,12 +180,13 @@ The account-owned storage contract is declared in `service.go`:
 type Repository interface {
     Save(ctx context.Context, account Account) error
     FindByID(ctx context.Context, id ID) (Account, error)
+    List(ctx context.Context) ([]Account, error)
 }
 
 var ErrNotFound = errors.New("account not found")
 ```
 
-`MemoryRepository`, implemented in `repository_memory.go`, is the only current repository. It stores accounts in a map keyed by `account.ID` and protects reads and writes with `sync.RWMutex`. `FindByID` returns `ErrNotFound` when the key is absent. Saving the same ID again replaces the stored value.
+`MemoryRepository`, implemented in `repository_memory.go`, is the only current repository. It stores accounts in a map keyed by `account.ID` and protects reads, list snapshots, and writes with `sync.RWMutex`. `FindByID` returns `ErrNotFound` when the key is absent. `List` returns an allocated snapshot, including a non-nil empty slice. Saving the same ID again replaces the stored value.
 
 Storage is process-local and ephemeral. There is a PostgreSQL service in the root `compose.yaml`, but the backend has no PostgreSQL driver, repository implementation, migrations, or database wiring and does not currently use that service.
 
@@ -200,6 +204,7 @@ type Handler struct {
 func NewHandler(service Service) Handler
 func (h Handler) RegisterRoutes(mux *http.ServeMux)
 func (h Handler) CreateAccount(w http.ResponseWriter, r *http.Request)
+func (h Handler) ListAccounts(w http.ResponseWriter, r *http.Request)
 func (h Handler) GetAccountByID(w http.ResponseWriter, r *http.Request)
 ```
 
@@ -207,6 +212,7 @@ func (h Handler) GetAccountByID(w http.ResponseWriter, r *http.Request)
 
 ```text
 POST /api/v1/accounts
+GET  /api/v1/accounts
 GET  /api/v1/accounts/{id}
 ```
 
@@ -225,6 +231,10 @@ type accountResponse struct {
     ID   string `json:"id"`
     Name string `json:"name"`
 }
+
+type accountsResponse struct {
+    Accounts []accountResponse `json:"accounts"`
+}
 ```
 
 Successful responses set `Content-Type: application/json`. Account IDs are serialized through `ID.String()`.
@@ -234,6 +244,8 @@ Successful responses set `Content-Type: application/json`. Account IDs are seria
 | Operation or condition | HTTP status | Response |
 |---|---:|---|
 | account created | 201 | account JSON |
+| accounts listed | 200 | `{"accounts": [...]}` ordered by canonical ID |
+| no accounts | 200 | `{"accounts": []}` |
 | malformed create JSON | 400 | `invalid request` |
 | empty or whitespace-only name (`ErrInvalidName`) | 400 | `account name cannot be empty` |
 | unexpected save error | 500 | `internal server error` |
@@ -241,6 +253,7 @@ Successful responses set `Content-Type: application/json`. Account IDs are seria
 | malformed account ID | 400 | `invalid account ID` |
 | missing account (`ErrNotFound`) | 404 | `account not found` |
 | unexpected lookup error | 500 | `internal server error` |
+| unexpected list error | 500 | `internal server error` |
 
 Error responses use `http.Error`, so they are plain text. Repository details are not exposed for unexpected failures.
 
@@ -312,9 +325,10 @@ Current tests cover:
 
 - valid, trimmed, empty, and whitespace-only account names;
 - preservation of the supplied ID by `account.New`;
-- in-memory save, lookup, and not-found behavior;
+- in-memory save, lookup, list snapshots, and not-found behavior;
 - service validation before save and repository-error propagation;
-- create-then-retrieve through the registered HTTP routes;
+- create, list, and retrieve through the registered HTTP routes;
+- deterministic account ordering and an allocated empty account collection;
 - malformed JSON, invalid names, malformed IDs, missing accounts, repository failures, and unsupported account methods;
 - currency normalization and minor-unit precision;
 - exact amount parsing, canonical formatting, invalid values, negatives, excessive precision, and overflow;
@@ -324,9 +338,35 @@ Current tests cover:
 - cash HTTP validation, missing-account behavior, repository failures, and unsupported methods;
 - normal liveness/readiness, readiness during shutdown, and unsupported health methods.
 
+The frontend uses Bun's test runner for API-client failure behavior and exact money/name validation. Its integration script imports the same API client as React and runs it through the Vite proxy against the real Go server. That check exercises all seven operations, including account discovery, empty balances, amount normalization, balance replacement, exact numeric bounds, and representative 400/404 responses.
+
 `NewID` and `ParseID` are exercised indirectly by HTTP and domain tests; they do not currently have dedicated tests.
 
-## 14. Decisions intentionally deferred
+## 14. Frontend and end-to-end integration
+
+The frontend is a React 19 and TypeScript 6 single-page application built by Vite 8 and managed with Bun. It is intentionally small: `App.tsx` composes the account list, account creation, selected-account details, cash form, and backend connection status without a router or global state library.
+
+```text
+React components
+    ↓
+useResource ──→ loading, retained-data, error, and reload state
+    ↓
+API client ──→ /api/v1, /livez, /readyz
+    ↓
+Vite/reverse proxy
+    ↓
+Go HTTP handlers
+```
+
+`api.ts` owns the seven browser operations and the distinction between transport errors and status-bearing API errors. Requests have a ten-second timeout and are not retried automatically. Product data is loaded from the backend; the frontend does not keep a second durable store. `useResource` ignores results after a component or selected-account load becomes inactive, which prevents a late response from replacing newer state.
+
+`money.ts` mirrors the backend's whitespace, syntax, currency-precision, and signed-`int64` limit checks so invalid balances can be rejected before a request. Amounts remain strings throughout the form and API client. The backend remains authoritative and repeats all validation.
+
+During development and preview, Vite proxies `/api`, `/livez`, and `/readyz` to `http://localhost:8080` by default; `API_PROXY_TARGET` can override that target. The browser therefore uses origin-relative URLs and the Go server does not currently need CORS handling. A static production build requires the deployment host or reverse proxy to provide equivalent routing because Vite's proxy is not embedded in built assets.
+
+The frontend/backend integration is complete for the current account and cash scope. It does not imply that the larger wealth-dashboard domain is implemented.
+
+## 15. Decisions intentionally deferred
 
 The backend does not yet fix an architecture for:
 
@@ -341,8 +381,13 @@ The backend does not yet fix an architecture for:
 - runtime configuration beyond the current constants;
 - production deployment.
 
-The repository contains a frontend scaffold, but frontend product architecture and integration with the account API remain outside the implemented backend slice.
+## 16. Current baseline and next change
 
-## 15. Current baseline and next change
+The account create/list/retrieve and cash set/list vertical slices, their React interface, shared HTTP contract, in-memory repositories, operational health checks, graceful shutdown, and end-to-end integration are implemented and tested.
 
-The account create/retrieve and cash set/list vertical slices, their in-memory repositories, HTTP routing, operational health checks, and graceful shutdown are implemented and tested. The next product story should determine whether to expose these capabilities through the frontend, persist them durably, or introduce another asset concept rather than expanding the model speculatively.
+The next phase has two legitimate architectural directions:
+
+1. **Database integration:** implement durable account and cash repositories, migrations, connection lifecycle, configuration, and dependency-aware readiness while keeping feature-owned repository interfaces and the existing HTTP contract stable.
+2. **Domain expansion:** select the smallest useful wealth workflow beyond current cash, then add only the domain types, API operations, and UI needed for that vertical slice. Likely candidates require explicit decisions about holdings, instruments, valuation, FX, or classification before implementation.
+
+The PostgreSQL service in `compose.yaml` is only preparatory infrastructure today; no driver, schema, migration, database repository, or server wiring exists. Until persistence is selected and implemented, all application data is lost when the Go process restarts.

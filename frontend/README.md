@@ -1,9 +1,16 @@
 # Meridian frontend
 
-A minimal React + TypeScript frontend for the implemented operations in
-[`../openapi/openapi.yaml`](../openapi/openapi.yaml). It uses the real Go backend:
-create/list/select accounts, read account details, view and replace cash balances
-in SGD/USD/VND, and check liveness/readiness.
+A React + TypeScript frontend for the implemented operations in
+[`../openapi/openapi.yaml`](../openapi/openapi.yaml). The frontend and Go backend
+are fully integrated for the current product scope: create/list/select accounts,
+read account details, view and replace cash balances in SGD/USD/VND, and check
+liveness/readiness.
+
+This completes the browser-to-backend account/cash workflow. The next project
+phase is either durable database integration for the existing repositories or a
+new end-to-end domain slice that makes the wealth dashboard more useful. The
+current UI does not yet model holdings, valuation, FX conversion, combined net
+worth, or allocation.
 
 ## Run locally
 

@@ -1,7 +1,7 @@
 # Meridian API contract
 
 [`openapi.yaml`](openapi.yaml) is the single OpenAPI 3.1 source for frontend and
-backend implementation. It is based on the **v1.3**
+backend implementation. It is based on the **v1.4**
 [product design](../docs/product-design.md) and
 [architecture](../docs/architecture.md), checked against the account, cash,
 currency, money, and health code and the scenarios in `hurl/`.
@@ -19,10 +19,11 @@ currency, money, and health code and the scenarios in `hurl/`.
 | Check readiness | `GET /readyz` | Implemented |
 
 Each operation has an `x-implementation-status` marker. **Planned does not mean
-available on the running server.** The account list enables the minimal
-account/cash frontend contemplated by product-design §9. Its contract deliberately
-uses the existing account resource, not speculative account metadata. Durable
-storage is a separate implementation concern and does not require a new endpoint.
+available on the running server.** All operations currently in the contract are
+implemented and used by the frontend. Account listing completes the discovery
+flow needed by the account/cash interface while deliberately using the existing
+account resource rather than speculative metadata. Durable storage is a separate
+implementation concern and does not require a new endpoint.
 
 ## Binding decisions for this scope
 
@@ -65,11 +66,11 @@ an ambiguous response. The API provides no aggregate across currencies.
 ## Broader wealth-dashboard boundary
 
 The product vision includes net worth, allocation drill-down, retirement
-classification, and target drift. However, product-design §§3, 8–10 and
-architecture §14 explicitly defer their domain models and say that the vision
-does not imply a future data model. Assigning implementation-ready paths and
-payloads to those concepts now would resolve product decisions the baseline
-intentionally leaves open.
+classification, and target drift. However, the product design and architecture
+explicitly defer their domain models and say that the vision does not imply a
+future data model. Assigning implementation-ready paths and payloads to those
+concepts now would resolve product decisions the baseline intentionally leaves
+open.
 
 The following is a requirements map for extending this same contract when those
 vertical slices are selected. These are **not reserved paths or available APIs**.

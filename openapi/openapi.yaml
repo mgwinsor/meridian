@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: |
     Shared implementation contract for the account and current-cash workflows in
-    docs/product-design.md and docs/architecture.md (baseline v1.3).
+    docs/product-design.md and docs/architecture.md (baseline v1.4).
     Operation-level x-implementation-status distinguishes implemented operations
     from planned ones. See README.md beside this file for scope, implementation
     sequencing, and deferred product decisions.
