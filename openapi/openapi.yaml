@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: Meridian Wealth Dashboard API
-  version: 0.2.0
+  version: 0.3.0
   description: |
-    Shared contract for the implemented account, current-cash, and property
+    Shared contract for the implemented instrument, account, current-cash, and property
     workflows in docs/product-design.md and docs/architecture.md (baseline
     v1.4), including the property slice described in the current domain model.
     Operation-level x-implementation-status distinguishes implemented operations
@@ -75,9 +75,129 @@ tags:
     description: Set and view current cash balances within an account.
   - name: Properties
     description: Creation, discovery, and manual valuation of directly owned property aggregates.
+  - name: Instruments
+    description: Investment vehicle metadata independent of ownership and valuation.
   - name: Health
     description: Process liveness and shutdown readiness.
 paths:
+  /api/v1/instruments:
+    post:
+      tags: [Instruments]
+      operationId: createInstrument
+      summary: Create an instrument
+      description: |
+        Creates an investment vehicle with a server-generated canonical UUID.
+        Symbol and name are trimmed and must remain nonempty; symbol case is
+        preserved. Duplicate symbols and names are allowed. Creation is not
+        idempotent and should not be retried after an ambiguous response.
+        Validation order is JSON, quote currency, kind, symbol, then name.
+        Unknown fields are ignored, never persisted. No account, position,
+        quantity, price, or valuation is stored. Returns no Location header.
+      x-implementation-status: implemented
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInstrumentRequest'
+            example:
+              kind: stock
+              symbol: AAPL
+              name: Apple Inc.
+              quoteCurrency: USD
+      responses:
+        '201':
+          description: Instrument created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Instrument'
+        '400':
+          description: Invalid JSON or instrument metadata.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+                enum: ["invalid request\n", "unsupported currency\n", "unsupported instrument kind\n", "instrument symbol cannot be empty\n", "instrument name cannot be empty\n"]
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags: [Instruments]
+      operationId: listInstruments
+      summary: List instruments
+      description: Returns all instruments ordered by canonical UUID ascending, with an explicit empty array when none exist.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          description: Complete instrument catalog.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [instruments]
+                properties:
+                  instruments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Instrument'
+              example:
+                instruments: []
+        '405':
+          description: Unsupported method on the collection path; GET, HEAD, and POST are allowed.
+          headers:
+            Allow:
+              schema:
+                type: string
+                const: GET, HEAD, POST
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                $ref: '#/components/schemas/MethodNotAllowedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/instruments/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Canonical lowercase hyphenated instrument UUID; alternative spellings return 400.
+        schema:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    get:
+      tags: [Instruments]
+      operationId: getInstrumentById
+      summary: Retrieve an instrument
+      description: Returns instrument metadata for an existing identity, or 404 for a valid UUID absent from the catalog.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          description: Instrument metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Instrument'
+        '400':
+          description: Invalid instrument UUID syntax.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+                const: "invalid instrument ID\n"
+        '404':
+          description: Instrument does not exist.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+                const: "instrument not found\n"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /api/v1/accounts:
     post:
       tags: [Accounts]
@@ -585,6 +705,51 @@ components:
         pattern: '^[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*(?:[uU][sS][dD]|[sS][gG][dD]|[vV][nN][dD])[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$'
       example: USD
   schemas:
+    InstrumentKind:
+      type: string
+      enum: [stock, etf, bond, mutual_fund, crypto]
+      description: Investment vehicle kind; values are case-sensitive.
+    CreateInstrumentRequest:
+      type: object
+      additionalProperties: true
+      required: [kind, symbol, name, quoteCurrency]
+      properties:
+        kind:
+          $ref: '#/components/schemas/InstrumentKind'
+        symbol:
+          type: string
+          minLength: 1
+          description: Symbol trimmed using Go strings.TrimSpace; must remain nonempty. Case and punctuation are preserved; not unique.
+        name:
+          type: string
+          minLength: 1
+          description: Display name trimmed using Go strings.TrimSpace; must remain nonempty. Not unique.
+        quoteCurrency:
+          type: string
+          enum: [USD, SGD, VND]
+          description: Currency in which the instrument is quoted; requires an exact uppercase supported code. Does not store a price.
+    Instrument:
+      type: object
+      additionalProperties: false
+      required: [id, kind, symbol, name, quoteCurrency]
+      description: Investment vehicle metadata with no account association, position, quantity, price, or valuation.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        kind:
+          $ref: '#/components/schemas/InstrumentKind'
+        symbol:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+        quoteCurrency:
+          type: string
+          enum: [USD, SGD, VND]
     CreateAccountRequest:
       type: object
       description: |

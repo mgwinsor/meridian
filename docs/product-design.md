@@ -32,7 +32,7 @@ The allocation explorer remains the central product idea. The same underlying we
 
 The domain model will not be designed exhaustively up front. New domain concepts are introduced only when a concrete product requirement requires them.
 
-The implemented application currently models custody accounts, current cash balances, and directly owned properties. Those capabilities are wired end to end: the React frontend uses the Go HTTP API to manage accounts and cash and, independently, to create, list, and revalue properties. Concepts such as countries, instruments, positions, portfolio groupings, aggregate reporting, FX, and rebalancing rules remain deferred until a vertical slice requires them.
+The implemented application currently models custody accounts, current cash balances, directly owned properties, and instrument metadata. Accounts, cash, and properties are wired end to end: the React frontend uses the Go HTTP API to manage accounts and cash and, independently, to create, list, and revalue properties. Instrument creation, listing, and retrieval are available through the backend API. Concepts such as countries, positions, portfolio groupings, aggregate reporting, FX, and rebalancing rules remain deferred until a vertical slice requires them.
 
 ### 3.2 Avoid premature classifications
 
@@ -104,6 +104,21 @@ There is currently no requirement for name uniqueness.
 ### 4.6 Cash balance
 
 A cash balance represents the current amount of one currency held in an account. Its natural identity is the combination of account ID and currency; it has no independent generated ID. Setting the same account and currency again replaces the previous amount, including when the new amount is zero.
+
+### Instrument metadata
+
+An instrument describes an investment vehicle independently of ownership and
+valuation. It contains a server-generated `instrument.ID`, kind (`stock`, `etf`,
+`bond`, `mutual_fund`, or `crypto`), a trimmed nonempty symbol and name, and a
+`currency.Code` quote currency using the existing USD/SGD/VND support. Symbols
+preserve case and punctuation. Duplicate symbols and names are allowed because
+the UUID provides identity; exchange-specific deduplication is not implemented.
+
+The backend supports `POST /api/v1/instruments`, `GET /api/v1/instruments`, and
+`GET /api/v1/instruments/{id}`. Lists are ordered by canonical UUID and include
+an explicit empty array. IDs require lowercase hyphenated UUIDs. Storage is
+process-local and in memory, and the frontend does not yet expose this catalog.
+This slice contains no account association, position, quantity, price, or value.
 
 ### 4.7 Property
 
@@ -290,7 +305,7 @@ The following are part of the broader product direction but are **not part of th
 - retirement/non-retirement classification;
 - account-level display or base currency;
 - country sentinel types;
-- securities and other instruments;
+- instrument management in the frontend and account-held securities positions;
 - holdings or positions;
 - prices and FX rates;
 - a cross-asset classification system;

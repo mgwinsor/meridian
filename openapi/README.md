@@ -5,8 +5,8 @@ backend implementation. It is based on the **v1.4**
 [product design](../docs/product-design.md) and
 [architecture](../docs/architecture.md), checked against the account, cash, property,
 currency, money, and health code and the scenarios in `hurl/`.
-Contract version **0.2.0** also includes the implemented property-asset slice
-selected from product-design sections 9 and 10.
+Contract version **0.3.0** includes the implemented property-asset slice and
+the instrument metadata API.
 
 ## Flows and delivery status
 
@@ -22,11 +22,27 @@ selected from product-design sections 9 and 10.
 | Enter a property and its current manual value | `POST /api/v1/properties` | Implemented |
 | Discover all properties and current values | `GET /api/v1/properties` | Implemented |
 | Replace a property's current manual value | `PUT /api/v1/properties/{propertyId}/value` | Implemented |
+| Create instrument metadata | `POST /api/v1/instruments` | Implemented (backend) |
+| Discover instruments | `GET /api/v1/instruments` | Implemented (backend) |
+| Retrieve an instrument | `GET /api/v1/instruments/{id}` | Implemented (backend) |
 
-Each operation has an `x-implementation-status` marker. All ten account, cash,
-property, and health operations are implemented and used by the frontend.
+Each operation has an `x-implementation-status` marker. All thirteen operations
+are implemented; the ten account, cash, property, and health operations are used
+by the frontend. Instrument management currently has no frontend interface.
 Durable storage is a separate implementation concern and does not require a new
 endpoint.
+
+## Instruments
+
+Instruments describe investment vehicles independently of accounts and holdings.
+Each has a generated canonical UUID, kind (`stock`, `etf`, `bond`, `mutual_fund`,
+or `crypto`), trimmed nonempty symbol and name, and quote currency (exact uppercase
+`USD`, `SGD`, or `VND`). Symbols retain case and punctuation; symbols and names
+need not be unique. Lists are ordered by UUID and empty lists return
+`{"instruments":[]}`. Retrieve requires a canonical lowercase hyphenated UUID.
+Storage is in memory. There are no positions, quantities, prices, or valuations.
+Validation order is JSON, quote currency, kind, symbol, then name. Errors use
+the existing plain-text convention. Creation is not idempotent.
 
 ## Property assets
 
@@ -115,7 +131,7 @@ contract revision rather than guess independently:
 
 | Future flow | Decisions required before adding operations/schemas |
 | --- | --- |
-| Enter instruments and holdings beyond the selected property slice | Supported asset types; instrument identity and deduplication; account/position relationship; quantity precision; price versus manually entered value; treatment of bonds, crypto, and overlap with existing property/cash records |
+| Enter holdings for cataloged instruments | Account/position relationship; quantity precision; price versus manually entered value; treatment of bonds, crypto, and overlap with existing property/cash records |
 | See net worth in a reporting currency | Liability/sign model; reporting currencies; FX source/direction/as-of timestamp; valuation source; rounding; stale/missing-rate and missing-price behavior; whether incomplete totals may be shown |
 | Explore asset-class → currency/instrument/account allocation | Classification ownership; allowed dimensions and nesting; exclusive membership/double-count prevention; filters; grouping keys; denominator and zero-total behavior; percentage precision |
 | Compare countries and retirement/non-retirement | Whether these classify accounts, holdings, or both; unknown/unclassified semantics; country code vocabulary and retirement membership rules |

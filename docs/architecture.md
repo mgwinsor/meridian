@@ -8,7 +8,7 @@
 
 Build the application in small vertical slices with explicit domain boundaries and minimal abstractions.
 
-The current account, cash, and property application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, property, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `currency`, and `money` domain packages plus an operational `health` package.
+The current account, cash, and property application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, property, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations but no frontend interface yet.
 
 Storage is still process-local and in memory. Broader architecture for other holdings, valuation, allocation, persistent storage, authentication, or deployment remains deferred until one of those requirements becomes the next vertical slice.
 
@@ -141,6 +141,25 @@ The HTTP API is:
 | `GET /api/v1/accounts/{id}/cash` | `200` with `{"balances": [...]}` |
 
 Amounts are JSON strings. Malformed account IDs, unsupported currencies, malformed requests, and invalid amounts return 400. A missing account returns 404. Unexpected account or cash repository errors return 500, and method-aware routing supplies 405 responses.
+
+### Instrument metadata slice
+
+`instrument.Instrument` contains its own UUID-backed `ID`, validated `Kind`,
+trimmed nonempty `Symbol` and `Name`, and `currency.Code` quote currency.
+It has no dependency on accounts, money, positions, or pricing. The service
+depends on a feature-owned repository with `Save`, `FindByID`, and `List`.
+The memory repository protects its flat ID-keyed map with an RWMutex and
+returns value snapshots; the service orders lists by canonical UUID.
+
+The server wires an independent instrument repository, service, and handler.
+`POST /api/v1/instruments` creates metadata, `GET /api/v1/instruments` lists it,
+and `GET /api/v1/instruments/{id}` retrieves it. JSON fields are `id`, `kind`,
+`symbol`, `name`, and `quoteCurrency`. Kind values are `stock`, `etf`, `bond`,
+`mutual_fund`, and `crypto`; currency input requires exact uppercase USD/SGD/VND.
+Creation validates JSON, currency, kind, symbol, then name. Symbols preserve case
+and punctuation and need not be unique. IDs require canonical lowercase
+hyphenated UUIDs. Missing records return 404; validation errors return 400;
+unexpected storage failures return a generic 500. Errors are plain text.
 
 ### 6.1 Standalone property slice
 
@@ -418,7 +437,7 @@ The backend does not yet fix an architecture for:
 - persistent repository wiring, migrations, or a SQL schema;
 - `country.Code`;
 - account type, institution metadata, or retirement classification;
-- instruments and holdings;
+- instrument management in the frontend and holdings;
 - the read-side Asset projection that may combine property, cash, and future positions;
 - valuation and FX;
 - portfolio grouping and allocation calculations;
