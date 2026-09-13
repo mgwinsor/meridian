@@ -5,8 +5,8 @@ backend implementation. It is based on the **v1.4**
 [product design](../docs/product-design.md) and
 [architecture](../docs/architecture.md), checked against the account, cash, property,
 currency, money, and health code and the scenarios in `hurl/`.
-Contract version **0.3.0** includes the implemented property-asset slice and
-the instrument metadata API.
+Contract version **0.4.0** includes the implemented property-asset slice and
+the instrument metadata and account-held position APIs.
 
 ## Flows and delivery status
 
@@ -25,10 +25,12 @@ the instrument metadata API.
 | Create instrument metadata | `POST /api/v1/instruments` | Implemented (backend) |
 | Discover instruments | `GET /api/v1/instruments` | Implemented (backend) |
 | Retrieve an instrument | `GET /api/v1/instruments/{id}` | Implemented (backend) |
+| View an account’s positions | `GET /api/v1/accounts/{id}/positions` | Implemented (backend) |
+| Set a holding quantity | `PUT /api/v1/accounts/{id}/positions/{instrumentID}` | Implemented (backend) |
 
-Each operation has an `x-implementation-status` marker. All thirteen operations
+Each operation has an `x-implementation-status` marker. All fifteen operations
 are implemented; the ten account, cash, property, and health operations are used
-by the frontend. Instrument management currently has no frontend interface.
+by the frontend. Instrument and position management currently have no frontend interface.
 Durable storage is a separate implementation concern and does not require a new
 endpoint.
 
@@ -40,7 +42,8 @@ or `crypto`), trimmed nonempty symbol and name, and quote currency (exact upperc
 `USD`, `SGD`, or `VND`). Symbols retain case and punctuation; symbols and names
 need not be unique. Lists are ordered by UUID and empty lists return
 `{"instruments":[]}`. Retrieve requires a canonical lowercase hyphenated UUID.
-Storage is in memory. There are no positions, quantities, prices, or valuations.
+Instrument storage is in memory. Holdings belong to the separate position slice.
+Instrument metadata contains no quantities, prices, or valuations.
 Validation order is JSON, quote currency, kind, symbol, then name. Errors use
 the existing plain-text convention. Creation is not idempotent.
 
@@ -72,7 +75,7 @@ repository and the existing currency/money types.
   Responses use canonical amounts; errors retain the existing plain-text convention.
 - Values are manual current estimates without timestamps or history. This slice
   adds no liabilities, price feeds, allocation calculations, or aggregate totals.
-- Accounts are custody containers for cash and future account-held positions;
+- Accounts are custody containers for cash and account-held positions;
   directly owned property is not account membership. A future read-side Asset
   projection may combine property, cash, and positions for reporting, but a
   shared Asset interface, generic asset storage, aggregation, and FX behavior
@@ -131,7 +134,7 @@ contract revision rather than guess independently:
 
 | Future flow | Decisions required before adding operations/schemas |
 | --- | --- |
-| Enter holdings for cataloged instruments | Account/position relationship; quantity precision; price versus manually entered value; treatment of bonds, crypto, and overlap with existing property/cash records |
+| Value instrument holdings | Price versus manually entered value; treatment of bonds and crypto; missing prices and FX |
 | See net worth in a reporting currency | Liability/sign model; reporting currencies; FX source/direction/as-of timestamp; valuation source; rounding; stale/missing-rate and missing-price behavior; whether incomplete totals may be shown |
 | Explore asset-class → currency/instrument/account allocation | Classification ownership; allowed dimensions and nesting; exclusive membership/double-count prevention; filters; grouping keys; denominator and zero-total behavior; percentage precision |
 | Compare countries and retirement/non-retirement | Whether these classify accounts, holdings, or both; unknown/unclassified semantics; country code vocabulary and retirement membership rules |
@@ -162,3 +165,15 @@ The license-metadata rule is intentionally disabled because the project has no
 declared license. The server URL is origin-relative; configure generated clients
 with `http://localhost:8080` for the current local backend.
 There are no external schema references, so a separate bundle step is unnecessary.
+
+## Positions
+
+A position is a current instrument holding identified by `(account ID, instrument ID)`.
+PUT accepts `{"quantity":"12.5"}` and creates or replaces the holding with 200.
+Both references must exist. GET returns `{"positions":[]}` for an empty account,
+otherwise full holdings (`accountId`, `instrumentId`, `quantity`) ordered by instrument UUID.
+Zero remains a holding. Quantities use exact nonnegative decimal strings with no
+fixed precision or magnitude limit. Whitespace and redundant zeroes are normalized;
+signs, exponents, and malformed decimals are rejected. Last completed save wins.
+Storage is in memory. Pricing, valuation, cash changes, history, and frontend
+position management are deferred.

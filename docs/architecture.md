@@ -8,7 +8,7 @@
 
 Build the application in small vertical slices with explicit domain boundaries and minimal abstractions.
 
-The current account, cash, and property application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, property, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations but no frontend interface yet.
+The current account, cash, and property application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, property, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `position`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations, and positions have account-scoped set/list operations. Neither has a frontend interface yet.
 
 Storage is still process-local and in memory. Broader architecture for other holdings, valuation, allocation, persistent storage, authentication, or deployment remains deferred until one of those requirements becomes the next vertical slice.
 
@@ -163,7 +163,7 @@ unexpected storage failures return a generic 500. Errors are plain text.
 
 ### 6.1 Standalone property slice
 
-`property.Property` contains only its own `ID`, `Name`, and `money.Amount` value. It is a directly owned physical-asset aggregate and has no account ID or account lookup dependency. Accounts remain custody containers for cash and future account-held positions.
+`property.Property` contains only its own `ID`, `Name`, and `money.Amount` value. It is a directly owned physical-asset aggregate and has no account ID or account lookup dependency. Accounts remain custody containers for cash and account-held positions.
 
 The property dependency flow is:
 
@@ -453,6 +453,28 @@ The account create/list/retrieve, cash set/list, and standalone property create/
 The next phase has two legitimate architectural directions:
 
 1. **Database integration:** implement durable account, cash, and property repositories, migrations, connection lifecycle, configuration, and dependency-aware readiness while keeping feature-owned repository interfaces and the existing HTTP contract stable.
-2. **Domain expansion:** select the smallest useful wealth workflow beyond current cash and property, then add only the domain types, API operations, and UI needed for that vertical slice. Likely candidates include account-held positions or the read-side Asset reporting projection and require explicit decisions about instruments, valuation, FX, or classification before implementation.
+2. **Domain expansion:** select the smallest useful wealth workflow beyond current cash and property, then add only the domain types, API operations, and UI needed for that vertical slice. Likely candidates include position valuation or the read-side Asset reporting projection and require explicit decisions about instruments, valuation, FX, or classification before implementation.
 
 The PostgreSQL service in `compose.yaml` is only preparatory infrastructure today; no driver, schema, migration, database repository, or server wiring exists. Until persistence is selected and implemented, all application data is lost when the Go process restarts.
+
+## Current position slice
+
+The backend supports current holdings of investment instruments in accounts through
+`PUT /api/v1/accounts/{id}/positions/{instrumentID}` and
+`GET /api/v1/accounts/{id}/positions`. Each account/instrument pair identifies one
+position; PUT creates or replaces its quantity. Both references must exist.
+Zero holdings remain visible. Lists are sorted by instrument UUID and empty
+accounts return an empty array; unknown accounts return 404.
+
+`position.Quantity` stores an exact nonnegative decimal without floating-point
+conversion or currency-specific precision limits. Its zero value represents zero.
+Input accepts whole and fractional digits, trims whitespace, and normalizes
+redundant zeroes. Negative values, signs, exponents, and malformed decimals fail
+validation. There is no fixed magnitude or precision limit.
+
+The feature owns its repository interface and uses narrow account and instrument
+lookup interfaces. In-memory storage is keyed by account and instrument, protected
+by a mutex, and returns detached list snapshots. Writes are idempotent and the last
+completed save wins. HTTP responses include accountId, instrumentId, and quantity.
+Pricing, valuation, transactions, cash adjustments, and a frontend interface for
+instruments and positions remain deferred.

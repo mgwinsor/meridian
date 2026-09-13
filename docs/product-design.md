@@ -32,7 +32,7 @@ The allocation explorer remains the central product idea. The same underlying we
 
 The domain model will not be designed exhaustively up front. New domain concepts are introduced only when a concrete product requirement requires them.
 
-The implemented application currently models custody accounts, current cash balances, directly owned properties, and instrument metadata. Accounts, cash, and properties are wired end to end: the React frontend uses the Go HTTP API to manage accounts and cash and, independently, to create, list, and revalue properties. Instrument creation, listing, and retrieval are available through the backend API. Concepts such as countries, positions, portfolio groupings, aggregate reporting, FX, and rebalancing rules remain deferred until a vertical slice requires them.
+The implemented application currently models custody accounts, current cash balances, directly owned properties, instrument metadata, and account-held positions. Accounts, cash, and properties are wired end to end: the React frontend uses the Go HTTP API to manage accounts and cash and, independently, to create, list, and revalue properties. Instrument creation, listing, and retrieval and position set/list operations are available through the backend API. Concepts such as countries, portfolio groupings, aggregate reporting, FX, and rebalancing rules remain deferred until a vertical slice requires them.
 
 ### 3.2 Avoid premature classifications
 
@@ -126,7 +126,7 @@ A property is a standalone physical-asset aggregate, not a member of an account.
 
 The value is the estimated gross market value of the user's owned share before mortgages or other liabilities. Revaluation replaces currency and amount together; changing currency is a new estimate, not an FX conversion. Zero remains an explicit value.
 
-Accounts continue to contain cash and will likely provide custody for future account-held positions. A future read-side Asset projection may combine properties, cash, and positions for reporting. This revision does not define an `Asset` interface, generic asset persistence, aggregation, or FX behavior.
+Accounts contain cash and provide custody for account-held positions. A future read-side Asset projection may combine properties, cash, and positions for reporting. This revision does not define an `Asset` interface, generic asset persistence, aggregation, or FX behavior.
 
 ## 5. Account vertical slice
 
@@ -305,8 +305,7 @@ The following are part of the broader product direction but are **not part of th
 - retirement/non-retirement classification;
 - account-level display or base currency;
 - country sentinel types;
-- instrument management in the frontend and account-held securities positions;
-- holdings or positions;
+- instrument and position management in the frontend;
 - prices and FX rates;
 - a cross-asset classification system;
 - liabilities;
@@ -325,7 +324,7 @@ Their presence in the long-term product vision does not imply a particular futur
 With the current frontend and backend fully wired, frontend integration is no longer a candidate next step. The next phase should choose one of two directions:
 
 1. **Durable persistence.** Replace or supplement the in-memory repositories with database-backed account, cash, and property repositories, define migrations and schema ownership, wire the database into startup/readiness/shutdown, and preserve the existing HTTP behavior.
-2. **A more useful wealth domain.** Add the smallest end-to-end capability beyond cash and property that moves the product toward a wealth overview—for example, an instrument/position slice or the read-side Asset projection. This path must first settle only the ownership, valuation, classification, and FX decisions needed by that slice.
+2. **A more useful wealth domain.** Add the smallest end-to-end capability beyond cash and property that moves the product toward a wealth overview—for example, position valuation or the read-side Asset projection. This path must first settle only the ownership, valuation, classification, and FX decisions needed by that slice.
 
 These paths can eventually converge, but the next story should have one primary outcome. Database integration improves durability without expanding what the product can express; domain expansion improves usefulness while data remains ephemeral unless persistence is addressed alongside it.
 
@@ -347,3 +346,25 @@ The product is not currently intended to become:
 - a bank-credential aggregation service.
 
 These boundaries should remain unless the product direction is deliberately changed later.
+
+## Current position slice
+
+The backend supports current holdings of investment instruments in accounts through
+`PUT /api/v1/accounts/{id}/positions/{instrumentID}` and
+`GET /api/v1/accounts/{id}/positions`. Each account/instrument pair identifies one
+position; PUT creates or replaces its quantity. Both references must exist.
+Zero holdings remain visible. Lists are sorted by instrument UUID and empty
+accounts return an empty array; unknown accounts return 404.
+
+`position.Quantity` stores an exact nonnegative decimal without floating-point
+conversion or currency-specific precision limits. Its zero value represents zero.
+Input accepts whole and fractional digits, trims whitespace, and normalizes
+redundant zeroes. Negative values, signs, exponents, and malformed decimals fail
+validation. There is no fixed magnitude or precision limit.
+
+The feature owns its repository interface and uses narrow account and instrument
+lookup interfaces. In-memory storage is keyed by account and instrument, protected
+by a mutex, and returns detached list snapshots. Writes are idempotent and the last
+completed save wins. HTTP responses include accountId, instrumentId, and quantity.
+Pricing, valuation, transactions, cash adjustments, and a frontend interface for
+instruments and positions remain deferred.

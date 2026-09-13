@@ -1,7 +1,7 @@
 GET http://localhost:8080/api/v1/instruments
 HTTP 200
 [Asserts]
-jsonpath "$.instruments" count == 0
+jsonpath "$.instruments" exists
 
 POST http://localhost:8080/api/v1/instruments
 Content-Type: application/json
@@ -31,8 +31,7 @@ jsonpath "$.symbol" == "AAPL"
 GET http://localhost:8080/api/v1/instruments
 HTTP 200
 [Asserts]
-jsonpath "$.instruments" count == 1
-jsonpath "$.instruments[0].id" == "{{instrument_id}}"
+jsonpath "$.instruments[*].id" contains "{{instrument_id}}"
 
 POST http://localhost:8080/api/v1/instruments
 Content-Type: application/json

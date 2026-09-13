@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: Meridian Wealth Dashboard API
-  version: 0.3.0
+  version: 0.4.0
   description: |
-    Shared contract for the implemented instrument, account, current-cash, and property
+    Shared contract for the implemented position, instrument, account, current-cash, and property
     workflows in docs/product-design.md and docs/architecture.md (baseline
     v1.4), including the property slice described in the current domain model.
     Operation-level x-implementation-status distinguishes implemented operations
@@ -70,16 +70,128 @@ servers:
 security: []
 tags:
   - name: Accounts
-    description: Create and discover custody containers for cash and future account-held positions.
+    description: Create and discover custody containers for cash and account-held positions.
   - name: Cash
     description: Set and view current cash balances within an account.
   - name: Properties
     description: Creation, discovery, and manual valuation of directly owned property aggregates.
   - name: Instruments
     description: Investment vehicle metadata independent of ownership and valuation.
+  - name: Positions
+    description: Set and view current instrument holdings within an account.
   - name: Health
     description: Process liveness and shutdown readiness.
 paths:
+  /api/v1/accounts/{id}/positions:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+    get:
+      tags: [Positions]
+      operationId: listPositions
+      summary: List current positions for an account
+      description: |
+        Verifies account existence and returns positions sorted by instrument UUID
+        ascending. Zero holdings remain in the collection. An existing account
+        without positions returns an empty array; a missing account returns 404.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          description: Complete current position collection.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [positions]
+                properties:
+                  positions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Position'
+              example: {positions: []}
+        '400':
+          $ref: '#/components/responses/InvalidAccountID'
+        '404':
+          $ref: '#/components/responses/AccountNotFound'
+        '405':
+          $ref: '#/components/responses/ReadMethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/accounts/{id}/positions/{instrumentID}:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+      - name: instrumentID
+        in: path
+        required: true
+        description: Existing instrument's canonical lowercase hyphenated UUID.
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [Positions]
+      operationId: setPosition
+      summary: Create or replace an account's holding of an instrument
+      description: |
+        Idempotent replacement by (account ID, instrument ID), returning 200 for
+        both creation and replacement. Both referenced resources must exist.
+        Last completed save wins; zero is stored, not deleted.
+        Validation order is account ID, instrument ID, JSON, quantity, account
+        existence, then instrument existence. Input trims Go Unicode whitespace
+        and accepts digits with an optional decimal fraction, without a fixed
+        precision or magnitude limit. Signs (including -0), exponent notation,
+        separators, and missing integer or fractional digits are rejected.
+        Quantities are exact strings, with redundant leading integer zeroes and
+        trailing fractional zeroes removed in responses. No currency precision,
+        price, valuation, transaction history, or cash adjustment applies.
+      x-implementation-status: implemented
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity:
+                  type: string
+                  description: Nonnegative decimal; after trimming whitespace must match ^[0-9]+(\.[0-9]+)?$.
+                  example: '12.34567890123456789'
+            example: {quantity: '12.5'}
+      responses:
+        '200':
+          description: Current holding created or replaced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Position'
+        '400':
+          description: Invalid account ID, instrument ID, JSON, or quantity.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+                enum: ["invalid account ID\n", "invalid instrument ID\n", "invalid request\n", "invalid quantity\n"]
+        '404':
+          description: Account or instrument does not exist.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+                enum: ["account not found\n", "instrument not found\n"]
+        '405':
+          description: Unsupported method; only PUT is allowed.
+          headers:
+            Allow:
+              required: true
+              schema: {type: string, const: PUT}
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                $ref: '#/components/schemas/MethodNotAllowedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /api/v1/instruments:
     post:
       tags: [Instruments]
@@ -705,6 +817,25 @@ components:
         pattern: '^[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*(?:[uU][sS][dD]|[sS][gG][dD]|[vV][nN][dD])[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$'
       example: USD
   schemas:
+    Position:
+      type: object
+      additionalProperties: false
+      required: [accountId, instrumentId, quantity]
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        instrumentId:
+          type: string
+          format: uuid
+        quantity:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$'
+          description: Exact canonical nonnegative holding quantity, independent of currency precision.
+      example:
+        accountId: '11111111-1111-4111-8111-111111111111'
+        instrumentId: '22222222-2222-4222-8222-222222222222'
+        quantity: '12.5'
     InstrumentKind:
       type: string
       enum: [stock, etf, bond, mutual_fund, crypto]
@@ -768,7 +899,7 @@ components:
       type: object
       additionalProperties: false
       required: [id, name]
-      description: Custody container for cash and future account-held positions; directly owned properties are separate aggregates.
+      description: Custody container for cash and account-held positions; directly owned properties are separate aggregates.
       properties:
         id:
           type: string
