@@ -1,0 +1,37 @@
+@startuml
+
+title Meridian — Package Architecture
+
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+
+package "cmd" {
+    component "server\n<<composition root>>" as Server
+}
+
+package "Application Packages\n(internal/)" {
+    component "account\n<<feature>>" as Account
+    component "cash\n<<feature>>" as Cash
+    component "property\n<<feature>>" as Property
+    component "money\n<<shared domain>>" as Money
+    component "currency\n<<shared domain>>" as Currency
+    component "health\n<<technical>>" as Health
+}
+
+' Composition root
+Server ..> Account
+Server ..> Cash
+Server ..> Health
+Server ..> Property
+
+' Internal package dependencies
+Cash ..> Account
+Cash ..> Money
+Cash ..> Currency
+
+Property ..> Money
+Property ..> Currency
+
+Money ..> Currency
+
+@enduml
