@@ -1,0 +1,6 @@
+# linear cli
+# https://github.com/schpet/linear-cli
+
+workspace = "mgwinsor"
+team_id = "MIC"
+issue_sort = "priority"
