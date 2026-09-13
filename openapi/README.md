@@ -3,8 +3,10 @@
 [`openapi.yaml`](openapi.yaml) is the single OpenAPI 3.1 source for frontend and
 backend implementation. It is based on the **v1.4**
 [product design](../docs/product-design.md) and
-[architecture](../docs/architecture.md), checked against the account, cash,
+[architecture](../docs/architecture.md), checked against the account, cash, property,
 currency, money, and health code and the scenarios in `hurl/`.
+Contract version **0.2.0** also includes the implemented property-asset slice
+selected from product-design sections 9 and 10.
 
 ## Flows and delivery status
 
@@ -17,13 +19,48 @@ currency, money, and health code and the scenarios in `hurl/`.
 | Enter/correct cash, including replacing it with zero | `PUT /api/v1/accounts/{id}/cash/{currency}` | Implemented |
 | Check liveness | `GET /livez` | Implemented |
 | Check readiness | `GET /readyz` | Implemented |
+| Enter a property and its current manual value | `POST /api/v1/properties` | Implemented |
+| Discover all properties and current values | `GET /api/v1/properties` | Implemented |
+| Replace a property's current manual value | `PUT /api/v1/properties/{propertyId}/value` | Implemented |
 
-Each operation has an `x-implementation-status` marker. **Planned does not mean
-available on the running server.** All operations currently in the contract are
-implemented and used by the frontend. Account listing completes the discovery
-flow needed by the account/cash interface while deliberately using the existing
-account resource rather than speculative metadata. Durable storage is a separate
-implementation concern and does not require a new endpoint.
+Each operation has an `x-implementation-status` marker. All ten account, cash,
+property, and health operations are implemented and used by the frontend.
+Durable storage is a separate implementation concern and does not require a new
+endpoint.
+
+## Property assets
+
+Property adds one useful asset type beyond cash while reusing supported currencies
+and exact money amounts. Manual valuation makes the slice usable
+without first defining an instrument catalog, quantities, market prices, or FX.
+It uses a feature-owned `property` backend package with its own identity and
+repository and the existing currency/money types.
+
+- A property record is a directly owned aggregate that represents the user's
+  real-estate value independently of any account. Its asset class is implicitly Property.
+  Enter the gross market value of the owned share, before mortgages or other
+  liabilities; no ownership-percentage calculation or net-worth claim is made.
+- Create with a trimmed, nonempty name and an initial value. A server-generated
+  UUID identifies the property independently of its name. Duplicate names are
+  allowed and physical-property deduplication is not provided.
+- List returns complete property representations ordered by property UUID,
+  including an explicit empty array. This supplies both discovery and current
+  values without requiring a separate detail endpoint.
+- Value PUT replaces currency and amount together on an existing property and
+  returns the full property with `200`. Changing currency supplies a new estimate,
+  not an FX conversion. Zero is retained. Writes are idempotent with the last
+  completed save winning; creation is not idempotent.
+- Property IDs require canonical UUIDs. Property value input requires uppercase
+  USD/SGD/VND and uses
+  existing money precision, normalization, and signed-int64 minor-unit limits.
+  Responses use canonical amounts; errors retain the existing plain-text convention.
+- Values are manual current estimates without timestamps or history. This slice
+  adds no liabilities, price feeds, allocation calculations, or aggregate totals.
+- Accounts are custody containers for cash and future account-held positions;
+  directly owned property is not account membership. A future read-side Asset
+  projection may combine property, cash, and positions for reporting, but a
+  shared Asset interface, generic asset storage, aggregation, and FX behavior
+  remain deliberately deferred.
 
 ## Binding decisions for this scope
 
@@ -58,19 +95,18 @@ implementation concern and does not require a new endpoint.
 
 For UI implementation, each collection has populated and empty examples; each
 write has success and validation examples. Handle missing accounts separately
-from empty balances. A 500 or transport failure should leave entered values
-available for correction/recovery. Cash PUT can be retried with awareness that
-doing so may overwrite another edit; account POST cannot be retried safely after
+from empty balances. Property loading is independent of account selection. A 500 or transport failure should leave entered values
+available for correction/recovery. Cash and property-value PUT can be retried with awareness that doing so may
+overwrite another edit; account and property POST cannot be retried safely after
 an ambiguous response. The API provides no aggregate across currencies.
 
 ## Broader wealth-dashboard boundary
 
-The product vision includes net worth, allocation drill-down, retirement
-classification, and target drift. However, the product design and architecture
-explicitly defer their domain models and say that the vision does not imply a
-future data model. Assigning implementation-ready paths and payloads to those
-concepts now would resolve product decisions the baseline intentionally leaves
-open.
+The property slice above is the selected domain expansion from the product
+vision. Net worth, allocation drill-down, retirement classification, and target
+drift remain outside this contract revision. The baseline's deferral language
+does not prevent selecting future slices; each selection should resolve only
+the domain decisions needed for its own workflow.
 
 The following is a requirements map for extending this same contract when those
 vertical slices are selected. These are **not reserved paths or available APIs**.
@@ -79,7 +115,7 @@ contract revision rather than guess independently:
 
 | Future flow | Decisions required before adding operations/schemas |
 | --- | --- |
-| Enter instruments and holdings | Supported asset types; instrument identity and deduplication; account/position relationship; quantity precision; price versus manually entered value; treatment of bonds, property, crypto, and cash overlap |
+| Enter instruments and holdings beyond the selected property slice | Supported asset types; instrument identity and deduplication; account/position relationship; quantity precision; price versus manually entered value; treatment of bonds, crypto, and overlap with existing property/cash records |
 | See net worth in a reporting currency | Liability/sign model; reporting currencies; FX source/direction/as-of timestamp; valuation source; rounding; stale/missing-rate and missing-price behavior; whether incomplete totals may be shown |
 | Explore asset-class → currency/instrument/account allocation | Classification ownership; allowed dimensions and nesting; exclusive membership/double-count prevention; filters; grouping keys; denominator and zero-total behavior; percentage precision |
 | Compare countries and retirement/non-retirement | Whether these classify accounts, holdings, or both; unknown/unclassified semantics; country code vocabulary and retirement membership rules |

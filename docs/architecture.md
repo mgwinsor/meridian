@@ -8,7 +8,7 @@
 
 Build the application in small vertical slices with explicit domain boundaries and minimal abstractions.
 
-The current account and cash application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `currency`, and `money` domain packages plus an operational `health` package.
+The current account, cash, and property application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, property, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `currency`, and `money` domain packages plus an operational `health` package.
 
 Storage is still process-local and in memory. Broader architecture for other holdings, valuation, allocation, persistent storage, authentication, or deployment remains deferred until one of those requirements becomes the next vertical slice.
 
@@ -23,12 +23,13 @@ The backend uses a feature-oriented package structure: packages communicate the 
 ```text
 internal/account
 internal/cash
+internal/property
 internal/currency
 internal/money
 internal/health
 ```
 
-Hexagonal principles apply at the account and cash storage boundaries. Application logic depends on feature-owned repository interfaces rather than concrete in-memory implementations. The codebase does not use a repository-wide `domain/`, `ports/`, `adapters/`, and `infrastructure/` hierarchy; feature cohesion takes priority over architecture-layer folders.
+Hexagonal principles apply at the account, cash, and property storage boundaries. Application logic depends on feature-owned repository interfaces rather than concrete in-memory implementations. The codebase does not use a repository-wide `domain/`, `ports/`, `adapters/`, and `infrastructure/` hierarchy; feature cohesion takes priority over architecture-layer folders.
 
 ## 3. Current backend structure
 
@@ -46,6 +47,12 @@ backend/
 │   │   └── *_test.go
 │   ├── cash/
 │   │   ├── cash.go
+│   │   ├── http.go
+│   │   ├── repository_memory.go
+│   │   ├── service.go
+│   │   └── *_test.go
+│   ├── property/
+│   │   ├── property.go
 │   │   ├── http.go
 │   │   ├── repository_memory.go
 │   │   ├── service.go
@@ -134,6 +141,38 @@ The HTTP API is:
 | `GET /api/v1/accounts/{id}/cash` | `200` with `{"balances": [...]}` |
 
 Amounts are JSON strings. Malformed account IDs, unsupported currencies, malformed requests, and invalid amounts return 400. A missing account returns 404. Unexpected account or cash repository errors return 500, and method-aware routing supplies 405 responses.
+
+### 6.1 Standalone property slice
+
+`property.Property` contains only its own `ID`, `Name`, and `money.Amount` value. It is a directly owned physical-asset aggregate and has no account ID or account lookup dependency. Accounts remain custody containers for cash and future account-held positions.
+
+The property dependency flow is:
+
+```text
+HTTP request
+    ↓
+property.Handler
+    ↓
+property.Service
+    ↓
+property.Repository
+    ↓
+property.MemoryRepository
+```
+
+The repository stores a flat map keyed by `property.ID`. `List` returns a snapshot of every property, which the service orders by canonical UUID. `ReplaceValue` holds the repository write lock while replacing the entire `money.Amount`, so currency and minor units change atomically; it never creates a missing property.
+
+The HTTP API is:
+
+| Route | Success behavior |
+|---|---|
+| `POST /api/v1/properties` | `201` with a generated canonical UUID, trimmed name, and canonical initial value |
+| `GET /api/v1/properties` | `200` with every property ordered by canonical UUID |
+| `PUT /api/v1/properties/{propertyId}/value` | `200` with the property after atomic currency-and-amount replacement |
+
+Create validation order is JSON, name, value object, currency, then amount. Update validation order is canonical property ID, JSON, currency, amount, then property lookup. Errors remain plain text and unexpected repository failures are not exposed.
+
+A future read-side Asset projection may combine properties, cash, and account-held positions for reporting. There is intentionally no persisted polymorphic base entity, `Asset` interface, generic asset repository, aggregation, or FX behavior in this slice.
 
 ## 7. Account slice and dependency flow
 
@@ -287,12 +326,16 @@ accountHandler := account.NewHandler(accountService)
 cashRepository := cash.NewMemoryRepository()
 cashService := cash.NewService(accountRepository, cashRepository)
 cashHandler := cash.NewHandler(cashService)
+propertyRepository := property.NewMemoryRepository()
+propertyService := property.NewService(propertyRepository)
+propertyHandler := property.NewHandler(propertyService)
 healthHandler := health.NewHandler()
 
 router := http.NewServeMux()
 healthHandler.RegisterRoutes(router)
 accountHandler.RegisterRoutes(router)
 cashHandler.RegisterRoutes(router)
+propertyHandler.RegisterRoutes(router)
 ```
 
 The server currently:
@@ -318,6 +361,7 @@ The package choice reflects the level under test:
 - `account` tests the service and HTTP adapter with package-private stubs and transport types;
 - `cash_test` exercises the in-memory cash repository as an external consumer;
 - `cash` tests service coordination and the HTTP adapter with package-private stubs;
+- `property` tests its standalone aggregate, service and HTTP adapter, flat repository, and concurrency behavior;
 - `currency_test` and `money_test` exercise their value types as external consumers;
 - `health_test` exercises the health package through its exported API.
 
@@ -336,15 +380,16 @@ Current tests cover:
 - account validation, deterministic currency ordering, and cash dependency-error propagation;
 - create-account, set-and-replace balances, and list-balances through registered HTTP routes;
 - cash HTTP validation, missing-account behavior, repository failures, and unsupported methods;
+- standalone property creation, empty and ordered lists, duplicate names, canonical IDs, exact values, atomic concurrent replacement, missing properties, validation precedence, repository failures, and method behavior;
 - normal liveness/readiness, readiness during shutdown, and unsupported health methods.
 
-The frontend uses Bun's test runner for API-client failure behavior and exact money/name validation. Its integration script imports the same API client as React and runs it through the Vite proxy against the real Go server. That check exercises all seven operations, including account discovery, empty balances, amount normalization, balance replacement, exact numeric bounds, and representative 400/404 responses.
+The frontend uses Bun's test runner for API-client failure behavior and exact money/name validation. Its integration script imports the same API client as React and runs it through the Vite proxy against the real Go server. That check exercises all ten operations, including account discovery, empty collections, amount normalization, cash and property replacement, exact numeric bounds, duplicate property names, and representative 400/404 responses.
 
 `NewID` and `ParseID` are exercised indirectly by HTTP and domain tests; they do not currently have dedicated tests.
 
 ## 14. Frontend and end-to-end integration
 
-The frontend is a React 19 and TypeScript 6 single-page application built by Vite 8 and managed with Bun. It is intentionally small: `App.tsx` composes the account list, account creation, selected-account details, cash form, and backend connection status without a router or global state library.
+The frontend is a React 19 and TypeScript 6 single-page application built by Vite 8 and managed with Bun. It is intentionally small: `App.tsx` composes sibling account and property workspace regions, account creation and selection, selected-account cash details, and backend connection status without a router or global state library.
 
 ```text
 React components
@@ -358,13 +403,13 @@ Vite/reverse proxy
 Go HTTP handlers
 ```
 
-`api.ts` owns the seven browser operations and the distinction between transport errors and status-bearing API errors. Requests have a ten-second timeout and are not retried automatically. Product data is loaded from the backend; the frontend does not keep a second durable store. `useResource` ignores results after a component or selected-account load becomes inactive, which prevents a late response from replacing newer state.
+`api.ts` owns the ten browser operations and the distinction between transport errors and status-bearing API errors. Requests have a ten-second timeout and are not retried automatically. Product data is loaded from the backend; the frontend does not keep a second durable store. `useResource` ignores results after a component or selected-account load becomes inactive, which prevents a late response from replacing newer state. The property region is mounted independently of account selection, so properties load with no account and account switching preserves property data and drafts.
 
 `money.ts` mirrors the backend's whitespace, syntax, currency-precision, and signed-`int64` limit checks so invalid balances can be rejected before a request. Amounts remain strings throughout the form and API client. The backend remains authoritative and repeats all validation.
 
 During development and preview, Vite proxies `/api`, `/livez`, and `/readyz` to `http://localhost:8080` by default; `API_PROXY_TARGET` can override that target. The browser therefore uses origin-relative URLs and the Go server does not currently need CORS handling. A static production build requires the deployment host or reverse proxy to provide equivalent routing because Vite's proxy is not embedded in built assets.
 
-The frontend/backend integration is complete for the current account and cash scope. It does not imply that the larger wealth-dashboard domain is implemented.
+The frontend/backend integration is complete for the current account, cash, and standalone property scope. It does not imply that the larger wealth-dashboard reporting domain is implemented.
 
 ## 15. Decisions intentionally deferred
 
@@ -374,6 +419,7 @@ The backend does not yet fix an architecture for:
 - `country.Code`;
 - account type, institution metadata, or retirement classification;
 - instruments and holdings;
+- the read-side Asset projection that may combine property, cash, and future positions;
 - valuation and FX;
 - portfolio grouping and allocation calculations;
 - authentication and authorization;
@@ -383,11 +429,11 @@ The backend does not yet fix an architecture for:
 
 ## 16. Current baseline and next change
 
-The account create/list/retrieve and cash set/list vertical slices, their React interface, shared HTTP contract, in-memory repositories, operational health checks, graceful shutdown, and end-to-end integration are implemented and tested.
+The account create/list/retrieve, cash set/list, and standalone property create/list/revalue vertical slices, their React interface, shared HTTP contract, in-memory repositories, operational health checks, graceful shutdown, and end-to-end integration are implemented and tested.
 
 The next phase has two legitimate architectural directions:
 
-1. **Database integration:** implement durable account and cash repositories, migrations, connection lifecycle, configuration, and dependency-aware readiness while keeping feature-owned repository interfaces and the existing HTTP contract stable.
-2. **Domain expansion:** select the smallest useful wealth workflow beyond current cash, then add only the domain types, API operations, and UI needed for that vertical slice. Likely candidates require explicit decisions about holdings, instruments, valuation, FX, or classification before implementation.
+1. **Database integration:** implement durable account, cash, and property repositories, migrations, connection lifecycle, configuration, and dependency-aware readiness while keeping feature-owned repository interfaces and the existing HTTP contract stable.
+2. **Domain expansion:** select the smallest useful wealth workflow beyond current cash and property, then add only the domain types, API operations, and UI needed for that vertical slice. Likely candidates include account-held positions or the read-side Asset reporting projection and require explicit decisions about instruments, valuation, FX, or classification before implementation.
 
 The PostgreSQL service in `compose.yaml` is only preparatory infrastructure today; no driver, schema, migration, database repository, or server wiring exists. Until persistence is selected and implemented, all application data is lost when the Go process restarts.

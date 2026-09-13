@@ -3,14 +3,14 @@
 A React + TypeScript frontend for the implemented operations in
 [`../openapi/openapi.yaml`](../openapi/openapi.yaml). The frontend and Go backend
 are fully integrated for the current product scope: create/list/select accounts,
-read account details, view and replace cash balances in SGD/USD/VND, and check
-liveness/readiness.
+read account details, view and replace cash balances in SGD/USD/VND, create and
+list properties, replace manual property values, and check liveness/readiness.
 
-This completes the browser-to-backend account/cash workflow. The next project
+This completes the browser-to-backend account, cash, and property workflows. The next project
 phase is either durable database integration for the existing repositories or a
 new end-to-end domain slice that makes the wealth dashboard more useful. The
-current UI does not yet model holdings, valuation, FX conversion, combined net
-worth, or allocation.
+current UI supports manual property valuation; instrument holdings, FX conversion,
+combined net worth, and allocation remain outside this scope.
 
 ## Run locally
 
@@ -53,9 +53,10 @@ bun run test:integration # Requires both Go and Vite to be running
 ```
 
 The integration check runs the same API client as React through the Vite proxy.
-It covers all seven API operations, account discovery, empty balances, decimal
-normalization, replacement with zero, exact int64 limits, and 400/404 errors.
-It creates a uniquely named test account that stays until the backend restarts.
+It covers all ten API operations, account discovery, empty collections, decimal
+normalization, replacement with zero, exact int64 limits, duplicate property names,
+standalone property operations, and 400/404 errors. It creates a test account and
+properties that stay until the backend restarts.
 For a different Vite port, use:
 
 ```sh
@@ -80,3 +81,19 @@ For a deployed static build, configure the host/reverse proxy to route `/api`,
 - Writes are never automatically retried. After an uncertain account creation,
   reload accounts before submitting again to avoid duplicates. After an
   uncertain cash save, reload balances before deciding whether to overwrite.
+
+## Properties
+
+Properties are directly owned and independent of custody accounts. Create a named
+property with a currency and current manual value even when no account exists or
+is selected. Enter the gross market value of your owned share before liabilities.
+Duplicate names are allowed, so the
+UI displays property IDs. Use **Update value** to replace currency and amount
+together, and **Reload properties** to retrieve current values. Reload keeps an
+open draft; cancel and reopen the editor to use the latest fetched value.
+
+Property values use the same exact money validation as cash. Zero remains listed.
+Creation and value updates are never automatically retried. Failed writes retain
+the draft with recovery guidance. Property loading/errors are shown separately
+from cash. Account selection and switching do not reload properties or reset
+property creation and value-edit drafts.

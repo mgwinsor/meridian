@@ -4,6 +4,7 @@ import { api, ApiError, currencies, errorMessage } from './api'
 import type { Account, CashBalance, Currency } from './api'
 import { trimInput, validateAmount } from './money'
 import { useResource } from './useResource'
+import { Properties } from './Properties'
 import './App.css'
 
 function ConnectionStatus() {
@@ -166,10 +167,10 @@ function App() {
   return (
     <main>
       <header>
-        <div><p className="eyebrow">Personal workspace</p><h1>Meridian</h1><p className="muted">Your accounts and current cash balances.</p></div>
+        <div><p className="eyebrow">Personal workspace</p><h1>Meridian</h1><p className="muted">Your accounts, cash balances, and property values.</p></div>
         <ConnectionStatus />
       </header>
-      <p className="workspace-note">This development workspace stores data in memory. Restarting the backend clears all accounts and balances.</p>
+      <p className="workspace-note">This development workspace stores data in memory. Restarting the backend clears all accounts, balances, and properties.</p>
       <div className="workspace">
         <section className="panel accounts" aria-label="Accounts">
           <div className="section-heading">
@@ -200,9 +201,10 @@ function App() {
         </section>
         {selectedId
           ? <AccountDetails key={selectedId} id={selectedId} />
-          : <section className="panel empty selection"><h2>Select an account</h2><p>Choose an account to view or update its cash balances.</p></section>}
+          : <section className="panel empty selection"><h2>Select an account</h2><p>Choose an account to manage its cash balances.</p></section>}
+        <Properties />
       </div>
-      <footer>Balances are shown in their original currency. No currency conversion or combined total.</footer>
+      <footer>Cash balances and property estimates are shown in their original currency. No currency conversion or combined total.</footer>
     </main>
   )
 }

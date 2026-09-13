@@ -1,10 +1,11 @@
 openapi: 3.1.0
 info:
   title: Meridian Wealth Dashboard API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    Shared implementation contract for the account and current-cash workflows in
-    docs/product-design.md and docs/architecture.md (baseline v1.4).
+    Shared contract for the implemented account, current-cash, and property
+    workflows in docs/product-design.md and docs/architecture.md (baseline
+    v1.4), including the property slice described in the current domain model.
     Operation-level x-implementation-status distinguishes implemented operations
     from planned ones. See README.md beside this file for scope, implementation
     sequencing, and deferred product decisions.
@@ -48,15 +49,32 @@ info:
     idempotent replacement by (account ID, currency), with last completed save
     winning concurrent writes. There are no ETag, If-Match, or Idempotency-Key
     guarantees. Clients should reload cash after uncertain or concurrent writes.
+
+    Properties are standalone physical-asset aggregates with named real-estate
+    interests and manually entered current values. Each record represents the user's
+    owned share of one property independently of any account. Its value is
+    the estimated gross market value of that share, before any mortgage or
+    other liability; it is neither a purchase price nor a cash balance. Property
+    is implicitly the asset class. Names are not unique and no physical-property
+    deduplication is promised.
+    Values use the existing supported currencies and exact money limits. There
+    is no ownership-percentage calculation, price feed, FX conversion, valuation
+    history, or net-worth total in this slice. Property creation, listing, and
+    value replacement are implemented and used by the frontend. A future Asset
+    read projection may combine properties, cash, and account-held positions for
+    reporting; no shared Asset interface, generic storage, aggregation, or FX
+    behavior is introduced by this contract.
 servers:
   - url: /
     description: API origin; use http://localhost:8080 for the current local Go server.
 security: []
 tags:
   - name: Accounts
-    description: Create and discover named containers for assets.
+    description: Create and discover custody containers for cash and future account-held positions.
   - name: Cash
     description: Set and view current cash balances within an account.
+  - name: Properties
+    description: Creation, discovery, and manual valuation of directly owned property aggregates.
   - name: Health
     description: Process liveness and shutdown readiness.
 paths:
@@ -295,6 +313,199 @@ paths:
               example: "Method Not Allowed\n"
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /api/v1/properties:
+    post:
+      tags: [Properties]
+      operationId: createProperty
+      summary: Create a standalone property asset
+      description: |
+        Creates a server-generated property UUID with a trimmed, nonempty name
+        and an initial manual value. Duplicate names are allowed. The value
+        describes only the user's owned share, before liabilities. No account
+        is created, looked up, or associated with the property.
+
+        Validation order is JSON decoding, name, value object, currency, then
+        amount. Missing, null, or non-object value returns invalid request.
+        Unknown object members are ignored. Amount
+        validation and normalization match cash; currency must be one of the
+        documented uppercase codes. No record is saved on validation failure.
+
+        Returns 201 with the complete property and no Location header. Creation
+        is not idempotent, even for identical inputs; do not automatically retry
+        after an ambiguous network failure. This slice provides creation,
+        listing, and value replacement.
+      x-implementation-status: implemented
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePropertyRequest'
+            examples:
+              ownedShare:
+                summary: Manually estimated value of the user's share of a home
+                value:
+                  name: '  Singapore home  '
+                  value: {currency: SGD, amount: '750000'}
+      responses:
+        '201':
+          description: Property created with a canonical ID, trimmed name, and canonical value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+              example:
+                id: 223e4567-e89b-42d3-a456-426614174000
+                name: Singapore home
+                value: {currency: SGD, amount: '750000.00'}
+        '400':
+          description: Invalid JSON, name, value object, currency, or amount.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                $ref: '#/components/schemas/CreatePropertyError'
+              examples:
+                malformedRequest:
+                  value: "invalid request\n"
+                invalidName:
+                  value: "property name cannot be empty\n"
+                unsupportedCurrency:
+                  value: "unsupported currency\n"
+                invalidAmount:
+                  value: "invalid amount\n"
+        '405':
+          $ref: '#/components/responses/PropertiesMethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags: [Properties]
+      operationId: listProperties
+      summary: List all current property assets
+      description: |
+        Returns every property in the workspace ordered by canonical property
+        UUID ascending, each ID appearing once. Names are not unique sort keys.
+        A workspace with no properties returns {"properties": []}. Properties
+        valued at zero remain listed.
+        The collection is complete and unpaginated with no query parameters.
+        Values are user estimates in their stated currencies, with no total.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          description: Complete workspace property collection, including an empty collection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyList'
+              examples:
+                properties:
+                  value:
+                    properties:
+                      - id: 223e4567-e89b-42d3-a456-426614174000
+                        name: Singapore home
+                        value: {currency: SGD, amount: '750000.00'}
+                empty:
+                  value: {properties: []}
+        '405':
+          $ref: '#/components/responses/PropertiesMethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/properties/{propertyId}/value:
+    parameters:
+      - $ref: '#/components/parameters/PropertyID'
+    put:
+      tags: [Properties]
+      operationId: setPropertyValue
+      summary: Replace a property's current manual value
+      description: |
+        Atomically replaces the currency and amount on an existing property,
+        returning the complete property. A change of currency supplies a new
+        manual estimate; the server performs no conversion. Identity and name
+        remain fixed. Zero is a stored value, not deletion.
+        This operation does not create a missing property.
+
+        Validation order is property-ID syntax, JSON decoding, currency, amount,
+        then property lookup. A valid property ID absent from the workspace
+        returns property not found.
+        Unknown object members are ignored. Currency must be a documented
+        uppercase code; amount validation and normalization match cash.
+
+        The write is synchronous and idempotent, with the last completed save
+        winning concurrent writes. There are no conditional-write guarantees.
+        Reload the property collection after uncertain or concurrent writes;
+        retrying may overwrite another edit. Only the current value is retained.
+      x-implementation-status: implemented
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PropertyValueInput'
+            examples:
+              revisedEstimate:
+                value: {currency: SGD, amount: ' 0800000.5 '}
+              wholeUnits:
+                value: {currency: VND, amount: '5000000000'}
+              zero:
+                value: {currency: SGD, amount: '0'}
+      responses:
+        '200':
+          description: Property with its replaced, canonical current value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+              examples:
+                revisedEstimate:
+                  value:
+                    id: 223e4567-e89b-42d3-a456-426614174000
+                    name: Singapore home
+                    value: {currency: SGD, amount: '800000.50'}
+                zero:
+                  value:
+                    id: 223e4567-e89b-42d3-a456-426614174000
+                    name: Singapore home
+                    value: {currency: SGD, amount: '0.00'}
+        '400':
+          description: Invalid property ID, JSON, currency, or amount.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                $ref: '#/components/schemas/SetPropertyValueError'
+              examples:
+                invalidPropertyID:
+                  value: "invalid property ID\n"
+                malformedRequest:
+                  value: "invalid request\n"
+                unsupportedCurrency:
+                  value: "unsupported currency\n"
+                invalidAmount:
+                  value: "invalid amount\n"
+        '404':
+          description: Property not present in the workspace.
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+                const: "property not found\n"
+              examples:
+                missingProperty:
+                  value: "property not found\n"
+        '405':
+          description: Unsupported method on this path (only PUT is allowed).
+          headers:
+            Allow:
+              required: true
+              schema: {type: string, const: PUT}
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                $ref: '#/components/schemas/MethodNotAllowedError'
+              example: "Method Not Allowed\n"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /livez:
     get:
       tags: [Health]
@@ -348,6 +559,19 @@ components:
         type: string
         pattern: '^(?:[0-9a-fA-F]{32}|(?:[uU][rR][nN]:[uU][uU][iI][dD]:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\})$'
       example: 123e4567-e89b-42d3-a456-426614174000
+    PropertyID:
+      name: propertyId
+      in: path
+      required: true
+      description: |
+        Server-generated property identity, distinct from account identity.
+        Use a canonical lowercase hyphenated UUID; other spellings return 400.
+        A valid UUID absent from the workspace returns 404.
+      schema:
+        type: string
+        format: uuid
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      example: 223e4567-e89b-42d3-a456-426614174000
     CashCurrency:
       name: currency
       in: path
@@ -379,6 +603,7 @@ components:
       type: object
       additionalProperties: false
       required: [id, name]
+      description: Custody container for cash and future account-held positions; directly owned properties are separate aggregates.
       properties:
         id:
           type: string
@@ -464,6 +689,112 @@ components:
           description: Ordered by currency ascending, at most one balance per currency.
           items:
             $ref: '#/components/schemas/CashBalance'
+    CreatePropertyRequest:
+      type: object
+      additionalProperties: true
+      description: Only name and value are consumed; unknown members are ignored, not persisted.
+      required: [name, value]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: '[^\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]'
+          description: Trimmed using Go strings.TrimSpace; must remain nonempty. Names need not be unique.
+        value:
+          $ref: '#/components/schemas/PropertyValueInput'
+    PropertyValueInput:
+      type: object
+      additionalProperties: true
+      required: [currency, amount]
+      description: |
+        Manual gross market value of the user's owned share, before liabilities.
+        Only currency and amount are consumed. Missing or null currency returns
+        unsupported currency; missing or null amount returns invalid amount.
+        Non-string field values or a non-object body return invalid request.
+      properties:
+        currency:
+          type: string
+          enum: [USD, SGD, VND]
+          description: Exact uppercase denomination of the estimate; no FX conversion is performed.
+        amount:
+          type: string
+          minLength: 1
+          pattern: '^[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*[0-9]+(?:\.[0-9]{1,2})?[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$'
+          description: |
+            Exact non-negative decimal string using cash amount parsing rules.
+            Trim Go Unicode whitespace and accept leading zeroes. USD/SGD allow
+            up to two fractional digits and at most 92233720368547758.07; VND
+            allows no fractional part and at most 9223372036854775807. Reject
+            signs, exponents, separators, excess precision, and overflow. Check
+            currency precision and bounds using integer/decimal arithmetic in
+            addition to schema validation. Zero is valid.
+    PropertyValue:
+      description: Canonical manual current value; never a cash balance or an inferred net value.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [currency, amount]
+          properties:
+            currency:
+              type: string
+              enum: [USD, SGD]
+            amount:
+              type: string
+              pattern: '^(0|[1-9][0-9]{0,16})\.[0-9]{2}$'
+              maxLength: 20
+              description: Canonical exact amount, at most 92233720368547758.07; also requires decimal validation.
+        - type: object
+          additionalProperties: false
+          required: [currency, amount]
+          properties:
+            currency:
+              type: string
+              const: VND
+            amount:
+              type: string
+              pattern: '^(0|[1-9][0-9]{0,18})$'
+              maxLength: 19
+              description: Canonical exact amount, at most 9223372036854775807; also requires integer validation.
+    Property:
+      type: object
+      additionalProperties: false
+      required: [id, name, value]
+      description: |
+        A directly owned real-estate interest independent of any custody account.
+        Each property has one current manual value. Asset class is implicitly Property;
+        mortgages and other liabilities are not included in this resource.
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          readOnly: true
+          description: Stable server-generated property identity.
+        name:
+          type: string
+          minLength: 1
+          description: Name with leading and trailing Go Unicode whitespace removed.
+        value:
+          $ref: '#/components/schemas/PropertyValue'
+    PropertyList:
+      type: object
+      additionalProperties: false
+      required: [properties]
+      properties:
+        properties:
+          type: array
+          uniqueItems: true
+          description: All properties in the workspace ordered by canonical property UUID ascending, each ID appearing once.
+          items:
+            $ref: '#/components/schemas/Property'
+    CreatePropertyError:
+      type: string
+      enum: ["invalid request\n", "property name cannot be empty\n", "unsupported currency\n", "invalid amount\n"]
+      description: Validation failure; exact message identifies the input to correct.
+    SetPropertyValueError:
+      type: string
+      enum: ["invalid property ID\n", "invalid request\n", "unsupported currency\n", "invalid amount\n"]
+      description: Validation failure; exact message identifies the input to correct.
     CreateAccountError:
       type: string
       enum: ["invalid request\n", "account name cannot be empty\n"]
@@ -506,7 +837,7 @@ components:
             $ref: '#/components/schemas/AccountNotFoundError'
           example: "account not found\n"
     InternalServerError:
-      description: Unexpected account or cash repository failure; internal details are not exposed.
+      description: Unexpected repository failure; internal details are not exposed.
       content:
         text/plain; charset=utf-8:
           schema:
@@ -522,6 +853,17 @@ components:
           schema:
             type: string
             enum: [POST, 'GET, HEAD, POST']
+      content:
+        text/plain; charset=utf-8:
+          schema:
+            $ref: '#/components/schemas/MethodNotAllowedError'
+          example: "Method Not Allowed\n"
+    PropertiesMethodNotAllowed:
+      description: Unsupported method on the property collection path; GET, HEAD, and POST are allowed.
+      headers:
+        Allow:
+          required: true
+          schema: {type: string, const: 'GET, HEAD, POST'}
       content:
         text/plain; charset=utf-8:
           schema:

@@ -40,7 +40,31 @@ try {
     error instanceof ApiError && error.status === 400 && error.message === 'invalid amount')
   await assert.rejects(api.getAccount('00000000-0000-0000-0000-000000000000'), (error: unknown) =>
     error instanceof ApiError && error.status === 404 && error.message === 'account not found')
-  console.log(`API integration passed through ${origin}: ${requests.length} requests covering all 7 operations.`)
+  assert.deepEqual((await api.listProperties()).properties, [])
+  const property = await api.createProperty('  Home  ', { currency: 'SGD', amount: '0750000.5' })
+  assert.equal(property.name, 'Home')
+  assert.deepEqual(property.value, { currency: 'SGD', amount: '750000.50' })
+  const duplicate = await api.createProperty('Home', property.value)
+  assert.notEqual(property.id, duplicate.id)
+  for (const [currency, amount, canonical] of [
+    ['VND', '9223372036854775807', '9223372036854775807'],
+    ['USD', '92233720368547758.07', '92233720368547758.07'],
+    ['SGD', '0', '0.00'],
+  ] as const) {
+    assert.deepEqual(await api.setPropertyValue(property.id, { currency, amount }), {
+      ...property, value: { currency, amount: canonical },
+    })
+  }
+  await assert.rejects(api.createProperty(' ', { currency: 'USD', amount: '1' }), (error: unknown) =>
+    error instanceof ApiError && error.status === 400 && error.message === 'property name cannot be empty')
+  await assert.rejects(api.setPropertyValue(property.id, { currency: 'USD', amount: '92233720368547758.08' }), (error: unknown) =>
+    error instanceof ApiError && error.status === 400 && error.message === 'invalid amount')
+  await assert.rejects(api.setPropertyValue('00000000-0000-0000-0000-000000000000', { currency: 'USD', amount: '1' }), (error: unknown) =>
+    error instanceof ApiError && error.status === 404 && error.message === 'property not found')
+  const properties = (await api.listProperties()).properties
+  assert.deepEqual(properties, [duplicate, { ...property, value: { currency: 'SGD', amount: '0.00' } }]
+    .sort((a, b) => a.id.localeCompare(b.id)))
+  console.log(`API integration passed through ${origin}: ${requests.length} requests covering all 10 operations.`)
   console.log(`Created test account ${account.id}; it remains until the backend restarts.`)
 } finally {
   globalThis.fetch = originalFetch

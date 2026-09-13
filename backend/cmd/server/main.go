@@ -14,6 +14,7 @@ import (
 	"github.com/mgwinsor/meridian/backend/internal/account"
 	"github.com/mgwinsor/meridian/backend/internal/cash"
 	"github.com/mgwinsor/meridian/backend/internal/health"
+	"github.com/mgwinsor/meridian/backend/internal/property"
 )
 
 func main() {
@@ -28,12 +29,16 @@ func main() {
 	cashRepository := cash.NewMemoryRepository()
 	cashService := cash.NewService(accountRepository, cashRepository)
 	cashHandler := cash.NewHandler(cashService)
+	propertyRepository := property.NewMemoryRepository()
+	propertyService := property.NewService(propertyRepository)
+	propertyHandler := property.NewHandler(propertyService)
 	healthHandler := health.NewHandler()
 
 	router := http.NewServeMux()
 	healthHandler.RegisterRoutes(router)
 	accountHandler.RegisterRoutes(router)
 	cashHandler.RegisterRoutes(router)
+	propertyHandler.RegisterRoutes(router)
 
 	httpServer := &http.Server{
 		Addr:    ":" + strconv.Itoa(port),

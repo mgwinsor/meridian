@@ -2,6 +2,8 @@ export type Account = { id: string; name: string }
 export const currencies = ['SGD', 'USD', 'VND'] as const
 export type Currency = (typeof currencies)[number]
 export type CashBalance = { currency: Currency; amount: string }
+export type PropertyValue = { currency: Currency; amount: string }
+export type Property = { id: string; name: string; value: PropertyValue }
 
 export class ApiError extends Error {
   readonly status: number
@@ -46,6 +48,19 @@ export const api = {
     body: JSON.stringify({ name }),
   }),
   getAccount: (id: string) => json<Account>(accountPath(id)),
+  listProperties: () => json<{ properties: Property[] }>('/api/v1/properties'),
+  createProperty: (name: string, value: PropertyValue) =>
+    json<Property>('/api/v1/properties', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, value }),
+    }),
+  setPropertyValue: (propertyId: string, value: PropertyValue) =>
+    json<Property>(`/api/v1/properties/${encodeURIComponent(propertyId)}/value`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(value),
+    }),
   listCash: (id: string) => json<{ balances: CashBalance[] }>(`${accountPath(id)}/cash`),
   setCash: (id: string, currency: Currency, amount: string) =>
     json<CashBalance>(`${accountPath(id)}/cash/${currency}`, {
