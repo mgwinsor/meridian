@@ -106,11 +106,11 @@ func TestServiceListsBalancesInCurrencyOrder(t *testing.T) {
 	}
 	want := []string{"SGD", "USD", "VND"}
 	for i, balance := range got {
-		if balance.Amount.Currency.String() != want[i] {
+		if balance.Amount.Currency().String() != want[i] {
 			t.Errorf(
 				"ListBalances()[%d] currency = %q, want %q",
 				i,
-				balance.Amount.Currency.String(),
+				balance.Amount.Currency().String(),
 				want[i],
 			)
 		}

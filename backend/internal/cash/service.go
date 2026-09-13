@@ -53,7 +53,7 @@ func (s Service) ListBalances(ctx context.Context, accountID account.ID) ([]Bala
 	}
 
 	sort.Slice(balances, func(i, j int) bool {
-		return balances[i].Amount.Currency.String() < balances[j].Amount.Currency.String()
+		return balances[i].Amount.Currency().String() < balances[j].Amount.Currency().String()
 	})
 
 	return balances, nil

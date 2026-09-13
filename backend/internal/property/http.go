@@ -129,7 +129,7 @@ func writeServiceError(w http.ResponseWriter, err error) {
 }
 
 func newPropertyResponse(property Property) propertyResponse {
-	return propertyResponse{ID: property.ID.String(), Name: property.Name, Value: valueInput{Currency: property.Value.Currency.String(), Amount: property.Value.String()}}
+	return propertyResponse{ID: property.ID.String(), Name: property.Name, Value: valueInput{Currency: property.Value.Currency().String(), Amount: property.Value.String()}}
 }
 
 func writeJSON(w http.ResponseWriter, status int, response any) {

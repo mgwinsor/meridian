@@ -38,7 +38,7 @@ func TestMemoryRepositorySavesListsAndReplacesBalances(t *testing.T) {
 
 	amounts := make(map[string]string)
 	for _, balance := range got {
-		amounts[balance.Amount.Currency.String()] = balance.Amount.String()
+		amounts[balance.Amount.Currency().String()] = balance.Amount.String()
 	}
 	if amounts["USD"] != "15.00" {
 		t.Errorf("USD balance = %q, want %q", amounts["USD"], "15.00")

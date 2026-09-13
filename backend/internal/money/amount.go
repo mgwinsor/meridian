@@ -12,7 +12,7 @@ import (
 var ErrInvalidAmount = errors.New("invalid amount")
 
 type Amount struct {
-	Currency   currency.Code
+	currency   currency.Code
 	minorUnits int64
 }
 
@@ -51,11 +51,13 @@ func Parse(code currency.Code, value string) (Amount, error) {
 		return Amount{}, ErrInvalidAmount
 	}
 
-	return Amount{Currency: code, minorUnits: parsed}, nil
+	return Amount{currency: code, minorUnits: parsed}, nil
 }
 
+func (a Amount) Currency() currency.Code { return a.currency }
+
 func (a Amount) String() string {
-	digits, err := a.Currency.MinorUnitDigits()
+	digits, err := a.currency.MinorUnitDigits()
 	if err != nil {
 		return ""
 	}

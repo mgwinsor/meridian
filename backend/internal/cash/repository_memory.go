@@ -31,7 +31,7 @@ func (r *MemoryRepository) Save(_ context.Context, balance Balance) error {
 		r.balances[balance.AccountID] = accountBalances
 	}
 
-	accountBalances[balance.Amount.Currency] = balance
+	accountBalances[balance.Amount.Currency()] = balance
 
 	return nil
 }

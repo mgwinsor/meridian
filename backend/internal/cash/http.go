@@ -110,7 +110,7 @@ func writeServiceError(w http.ResponseWriter, err error) {
 
 func newBalanceResponse(balance Balance) balanceResponse {
 	return balanceResponse{
-		Currency: balance.Amount.Currency.String(),
+		Currency: balance.Amount.Currency().String(),
 		Amount:   balance.Amount.String(),
 	}
 }

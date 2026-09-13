@@ -54,8 +54,8 @@ func TestParse(t *testing.T) {
 			if err != nil {
 				t.Fatalf("money.Parse() unexpected error: %v", err)
 			}
-			if got.Currency != code {
-				t.Errorf("Amount.Currency = %s, want %s", got.Currency, code)
+			if got.Currency() != code {
+				t.Errorf("Amount.Currency() = %s, want %s", got.Currency(), code)
 			}
 			if got.String() != tt.want {
 				t.Errorf("Amount.String() = %q, want %q", got.String(), tt.want)
