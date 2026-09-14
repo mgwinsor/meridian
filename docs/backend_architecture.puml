@@ -22,26 +22,26 @@ package "Application Packages\n(internal/)" {
 }
 
 ' Composition root
-Server ..> Account
-Server ..> Cash
-Server ..> Health
-Server ..> Property
-Server ..> Instrument
-Server ..> Position
+Server --> Account
+Server --> Cash
+Server --> Health
+Server --> Property
+Server --> Instrument
+Server --> Position
 
 ' Internal package dependencies
-Cash ..> Account
-Cash ..> Money
-Cash ..> Currency
+Cash --> Account
+Cash --> Money
+Cash --> Currency
 
-Property ..> Money
-Property ..> Currency
+Property --> Money
+Property --> Currency
 
-Money ..> Currency
+Money --> Currency
 
-Instrument ..> Currency
+Instrument --> Currency
 
-Position ..> Account
-Position ..> Instrument
+Position --> Account
+Position --> Instrument
 
 @enduml
