@@ -4,6 +4,15 @@ export type Currency = (typeof currencies)[number]
 export type CashBalance = { currency: Currency; amount: string }
 export type PropertyValue = { currency: Currency; amount: string }
 export type Property = { id: string; name: string; value: PropertyValue }
+export const instrumentKinds = ['stock', 'etf', 'bond', 'mutual_fund', 'crypto'] as const
+export type InstrumentKind = (typeof instrumentKinds)[number]
+export const instrumentKindLabels: Record<InstrumentKind, string> = {
+  stock: 'Stock', etf: 'ETF', bond: 'Bond', mutual_fund: 'Mutual fund', crypto: 'Crypto',
+}
+export type InstrumentInput = { kind: InstrumentKind; symbol: string; name: string; quoteCurrency: Currency }
+export type Instrument = InstrumentInput & { id: string }
+export type Position = { accountId: string; instrumentId: string; quantity: string }
+export type PriceObservation = { instrumentId: string; currency: Currency; amount: string; observedAt: string }
 
 export class ApiError extends Error {
   readonly status: number
@@ -39,8 +48,24 @@ async function json<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 const accountPath = (id: string) => `/api/v1/accounts/${encodeURIComponent(id)}`
+const instrumentPath = (id: string) => `/api/v1/instruments/${encodeURIComponent(id)}`
 
 export const api = {
+  listInstruments: () => json<{ instruments: Instrument[] }>('/api/v1/instruments'),
+  createInstrument: (instrument: InstrumentInput) => json<Instrument>('/api/v1/instruments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(instrument),
+  }),
+  getInstrument: (id: string) => json<Instrument>(instrumentPath(id)),
+  listPositions: (accountId: string) => json<{ positions: Position[] }>(`${accountPath(accountId)}/positions`),
+  setPosition: (accountId: string, instrumentId: string, quantity: string) =>
+    json<Position>(`${accountPath(accountId)}/positions/${encodeURIComponent(instrumentId)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity }),
+    }),
+  listPrices: (instrumentId: string) => json<{ observations: PriceObservation[] }>(`${instrumentPath(instrumentId)}/prices`),
+  recordPrice: (instrumentId: string, amount: string, observedAt?: string) =>
+    json<PriceObservation>(`${instrumentPath(instrumentId)}/prices`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount, observedAt }),
+    }),
   listAccounts: () => json<{ accounts: Account[] }>('/api/v1/accounts'),
   createAccount: (name: string) => json<Account>('/api/v1/accounts', {
     method: 'POST',

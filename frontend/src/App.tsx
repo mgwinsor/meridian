@@ -5,6 +5,9 @@ import type { Account, CashBalance, Currency } from './api'
 import { trimInput, validateAmount } from './money'
 import { useResource } from './useResource'
 import { Properties } from './Properties'
+import { Instruments } from './Instruments'
+import type { InstrumentCatalog } from './Instruments'
+import { Positions } from './Positions'
 import './App.css'
 
 function ConnectionStatus() {
@@ -126,7 +129,7 @@ function CashForm({ accountId, balances, onSaved }: {
   )
 }
 
-function AccountDetails({ id }: { id: string }) {
+function AccountDetails({ id, catalog }: { id: string; catalog: InstrumentCatalog }) {
   const load = useCallback(async () => {
     const [account, cash] = await Promise.all([api.getAccount(id), api.listCash(id)])
     return { account, balances: cash.balances }
@@ -155,22 +158,24 @@ function AccountDetails({ id }: { id: string }) {
           </table>}
         <CashForm accountId={id} balances={details.data.balances} onSaved={details.reload} />
       </>}
+      <Positions accountId={id} catalog={catalog} />
     </section>
   )
 }
 
 function App() {
   const accounts = useResource(api.listAccounts)
+  const catalog = useResource(api.listInstruments)
   const [selectedId, setSelectedId] = useState<string>()
   const [notice, setNotice] = useState('')
 
   return (
     <main>
       <header>
-        <div><p className="eyebrow">Personal workspace</p><h1>Meridian</h1><p className="muted">Your accounts, cash balances, and property values.</p></div>
+        <div><p className="eyebrow">Personal workspace</p><h1>Meridian</h1><p className="muted">Your accounts, holdings, prices, and property values.</p></div>
         <ConnectionStatus />
       </header>
-      <p className="workspace-note">This development workspace stores data in memory. Restarting the backend clears all accounts, balances, and properties.</p>
+      <p className="workspace-note">This development workspace stores data in memory. Restarting the backend clears all accounts, balances, properties, instruments, holdings, and prices.</p>
       <div className="workspace">
         <section className="panel accounts" aria-label="Accounts">
           <div className="section-heading">
@@ -200,11 +205,12 @@ function App() {
           {notice && <p role="status" className="success">{notice}</p>}
         </section>
         {selectedId
-          ? <AccountDetails key={selectedId} id={selectedId} />
-          : <section className="panel empty selection"><h2>Select an account</h2><p>Choose an account to manage its cash balances.</p></section>}
+          ? <AccountDetails key={selectedId} id={selectedId} catalog={catalog} />
+          : <section className="panel empty selection"><h2>Select an account</h2><p>Choose an account to manage its cash balances and investment holdings.</p></section>}
+        <Instruments catalog={catalog} />
         <Properties />
       </div>
-      <footer>Cash balances and property estimates are shown in their original currency. No currency conversion or combined total.</footer>
+      <footer>Amounts are shown in their original currency. Holdings show units held; prices do not calculate holding values. No currency conversion or combined total.</footer>
     </main>
   )
 }

@@ -68,3 +68,56 @@ test('checks both health endpoints and rejects unexpected bodies', async () => {
   await expect(api.health()).rejects.toThrow('Unexpected response')
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
+
+test('creates and retrieves instrument metadata with encoded identities', async () => {
+  const input = { name: 'Apple', symbol: 'AAPL', kind: 'stock' as const, quoteCurrency: 'USD' as const }
+  const instrument = { id: 'instrument/id', ...input }
+  fetchMock.mockResolvedValueOnce(Response.json(instrument))
+  expect(await api.createInstrument(input)).toEqual(instrument)
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/instruments', expect.objectContaining({
+    method: 'POST', body: JSON.stringify(input), headers: { 'Content-Type': 'application/json' },
+  }))
+  fetchMock.mockResolvedValueOnce(Response.json({ instruments: [instrument] }))
+  expect(await api.listInstruments()).toEqual({ instruments: [instrument] })
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/instruments', expect.anything())
+  fetchMock.mockResolvedValueOnce(Response.json(instrument))
+  expect(await api.getInstrument(instrument.id)).toEqual(instrument)
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/instruments/instrument%2Fid', expect.anything())
+})
+
+test('sets and lists account holdings without rounding fractional quantities', async () => {
+  const position = { accountId: 'account/id', instrumentId: 'instrument/id', quantity: '9223372036854775807999.000000000000000001' }
+  fetchMock.mockResolvedValueOnce(Response.json(position))
+  expect(await api.setPosition(position.accountId, position.instrumentId, position.quantity)).toEqual(position)
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/accounts/account%2Fid/positions/instrument%2Fid', expect.objectContaining({
+    method: 'PUT', body: JSON.stringify({ quantity: position.quantity }), headers: { 'Content-Type': 'application/json' },
+  }))
+  fetchMock.mockResolvedValueOnce(Response.json({ positions: [position] }))
+  expect(await api.listPositions(position.accountId)).toEqual({ positions: [position] })
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/accounts/account%2Fid/positions', expect.anything())
+})
+
+test('records exact prices, preserves timestamp precision and omits the optional time', async () => {
+  const observation = { instrumentId: 'instrument/id', currency: 'USD', amount: '92233720368547758.07', observedAt: '2026-09-14T12:00:00.123456789Z' }
+  fetchMock.mockResolvedValueOnce(Response.json(observation))
+  expect(await api.recordPrice(observation.instrumentId, observation.amount, observation.observedAt)).toEqual(observation)
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/instruments/instrument%2Fid/prices', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ amount: observation.amount, observedAt: observation.observedAt }),
+    headers: { 'Content-Type': 'application/json' },
+  }))
+  fetchMock.mockResolvedValueOnce(Response.json(observation))
+  await api.recordPrice(observation.instrumentId, '0')
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/instruments/instrument%2Fid/prices', expect.objectContaining({ body: '{"amount":"0"}' }))
+  fetchMock.mockResolvedValueOnce(Response.json({ observations: [observation, observation] }))
+  expect(await api.listPrices(observation.instrumentId)).toEqual({ observations: [observation, observation] })
+})
+
+test('does not retry investment writes after an uncertain response', async () => {
+  fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  await expect(api.createInstrument({ name: 'Apple', symbol: 'AAPL', kind: 'stock', quoteCurrency: 'USD' })).rejects.toThrow('Cannot reach the server')
+  fetchMock.mockResolvedValueOnce(new Response('internal server error', { status: 500 }))
+  await expect(api.recordPrice('instrument', '1')).rejects.toMatchObject({ status: 500 })
+  fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  await expect(api.setPosition('account', 'instrument', '0')).rejects.toThrow('Cannot reach the server')
+  expect(fetchMock).toHaveBeenCalledTimes(3)
+})

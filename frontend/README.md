@@ -4,13 +4,15 @@ A React + TypeScript frontend for the implemented operations in
 [`../openapi/openapi.yaml`](../openapi/openapi.yaml). The frontend and Go backend
 are fully integrated for the current product scope: create/list/select accounts,
 read account details, view and replace cash balances in SGD/USD/VND, create and
-list properties, replace manual property values, and check liveness/readiness.
+list properties, replace manual property values, create/list/select instruments,
+set account holdings, record/list price observations, and check liveness/readiness.
 
-This completes the browser-to-backend account, cash, and property workflows. The next project
+This completes the browser-to-backend account, cash, property, instrument,
+position, and price workflows. The next project
 phase is either durable database integration for the existing repositories or a
 new end-to-end domain slice that makes the wealth dashboard more useful. The
-current UI supports manual property valuation; instrument holdings, FX conversion,
-combined net worth, and allocation remain outside this scope.
+current UI supports manual property valuation and investment holdings; position
+valuation, FX conversion, combined net worth, and allocation remain outside this scope.
 
 ## Run locally
 
@@ -53,10 +55,11 @@ bun run test:integration # Requires both Go and Vite to be running
 ```
 
 The integration check runs the same API client as React through the Vite proxy.
-It covers all ten API operations, account discovery, empty collections, decimal
+It covers all 17 API operations, account discovery, empty collections, decimal
 normalization, replacement with zero, exact int64 limits, duplicate property names,
-standalone property operations, and 400/404 errors. It creates a test account and
-properties that stay until the backend restarts.
+standalone property operations, all instrument types, exact fractional holdings,
+price timestamp normalization, duplicate observations, and 400/404 errors. It creates
+test accounts, properties, instruments, holdings, and prices that stay until the backend restarts.
 For a different Vite port, use:
 
 ```sh
@@ -97,3 +100,32 @@ Creation and value updates are never automatically retried. Failed writes retain
 the draft with recovery guidance. Property loading/errors are shown separately
 from cash. Account selection and switching do not reload properties or reset
 property creation and value-edit drafts.
+
+## Instruments, holdings, and prices
+
+**Instruments & prices** is a shared catalog independent of account selection.
+Create a stock, ETF, bond, mutual fund, or crypto instrument with a name, symbol,
+and quote currency. Search by name, symbol, type, currency, or ID, then select an
+instrument to retrieve its details and price history. IDs distinguish duplicate
+names and symbols. Creating an instrument makes it available in account holdings.
+
+Select an account and use **Set a holding** to choose an instrument and enter the
+total units owned. **Edit holding** loads the last fetched quantity into the form.
+Saving replaces that account/instrument quantity; it does not change cash.
+Quantities stay exact decimal strings with no currency precision or magnitude
+limit. Zero remains visible. Reloading keeps drafts; selecting another instrument
+loads its last fetched quantity, and switching accounts resets the holding form.
+
+**Record a price** adds an observation in the instrument's fixed quote currency.
+Prices use the same exact money limits as cash. The optional date/time uses the
+browser's displayed local timezone and converts to UTC; blank uses server time.
+History shows the full server timestamps in UTC, newest first, including duplicate
+observations. The latest observed price is highlighted, including future observations
+if entered. Switching instruments resets price drafts and ignores late responses.
+Account switching preserves the selected instrument and its price draft.
+
+Loading, empty, failed-load, and failed-save states have recovery guidance.
+Reload failures retain the last fetched data; failed writes retain drafts and are
+never automatically retried. Uncertain price saves advise checking history before
+resubmitting because each POST adds another observation. Prices and holdings are
+independent: the UI does not calculate position values or portfolio totals.

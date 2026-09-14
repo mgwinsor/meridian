@@ -49,3 +49,34 @@ footer { margin-top: 24px; }
   fieldset { grid-template-columns: 90px minmax(0, 1fr); }
   fieldset button { grid-column: 1 / -1; }
 }
+
+.instruments { grid-column: 1 / -1; scroll-margin-top: 24px; }
+.instrument-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 32px; }
+.instrument-list { margin-top: 12px; max-height: 360px; overflow-y: auto; padding: 4px; }
+.instrument-details { border-left: 1px solid #e1e8e4; padding-left: 32px; min-width: 0; }
+.instrument-details > section { margin-top: 28px; }
+.investment-form { border-top: 1px solid #e1e8e4; margin-top: 24px; padding-top: 24px; }
+.investment-form fieldset { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.investment-form fieldset > div { min-width: 0; }
+.full-width, .form-action { grid-column: 1 / -1; }
+.positions { border-top: 1px solid #e1e8e4; margin-top: 32px; padding-top: 24px; }
+.section-heading h3 { margin-bottom: 0; }
+.holding-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.holding-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; border: 1px solid #d7e1dc; border-radius: 6px; }
+.holding-card > div { min-width: 0; overflow-wrap: anywhere; }
+.holding-quantity { margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+.price-highlight { padding: 16px; border-radius: 6px; background: #eaf3ef; overflow-wrap: anywhere; }
+.price-highlight > span, .price-highlight > strong, .price-highlight > time { display: block; }
+.price-highlight > strong { font-size: 1.5rem; margin: 4px 0; font-variant-numeric: tabular-nums; }
+.price-highlight > time { font-size: .8rem; }
+.table-scroll { max-width: 100%; overflow-x: auto; max-height: 360px; }
+.table-scroll th, .table-scroll td { white-space: nowrap; }
+caption { text-align: left; color: #526963; font-size: .8rem; padding: 8px 0; }
+a { color: #236958; }
+@media (max-width: 760px) {
+  .instrument-workspace { grid-template-columns: 1fr; }
+  .instrument-details { padding: 24px 0 0; border-left: 0; border-top: 1px solid #e1e8e4; }
+  .holding-card { align-items: flex-start; flex-direction: column; }
+  .investment-form fieldset { grid-template-columns: minmax(0, 1fr); }
+  .section-heading { flex-wrap: wrap; }
+}

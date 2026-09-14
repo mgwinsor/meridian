@@ -32,7 +32,7 @@ The allocation explorer remains the central product idea. The same underlying we
 
 The domain model will not be designed exhaustively up front. New domain concepts are introduced only when a concrete product requirement requires them.
 
-The implemented application currently models custody accounts, current cash balances, directly owned properties, instrument metadata, account-held positions, and price observations. Accounts, cash, and properties are wired end to end: the React frontend uses the Go HTTP API to manage accounts and cash and, independently, to create, list, and revalue properties. Instrument creation, listing, and retrieval, position set/list operations, and price observation record/list operations are available through the backend API. Concepts such as countries, portfolio groupings, aggregate reporting, FX, and rebalancing rules remain deferred until a vertical slice requires them.
+The implemented application currently models custody accounts, current cash balances, directly owned properties, instrument metadata, account-held positions, and price observations. All are wired end to end: the React frontend uses the Go HTTP API to manage accounts, cash, and holdings and, independently, properties and a shared instrument catalog with price history. Concepts such as countries, portfolio groupings, aggregate reporting, FX, and rebalancing rules remain deferred until a vertical slice requires them.
 
 ### 3.2 Avoid premature classifications
 
@@ -305,7 +305,6 @@ The following are part of the broader product direction but are **not part of th
 - retirement/non-retirement classification;
 - account-level display or base currency;
 - country sentinel types;
-- instrument and position management in the frontend;
 - external price feeds and FX rates;
 - a cross-asset classification system;
 - liabilities;
@@ -366,8 +365,8 @@ The feature owns its repository interface and uses narrow account and instrument
 lookup interfaces. In-memory storage is keyed by account and instrument, protected
 by a mutex, and returns detached list snapshots. Writes are idempotent and the last
 completed save wins. HTTP responses include accountId, instrumentId, and quantity.
-Position valuation, transactions, cash adjustments, and a frontend interface for
-instruments and positions remain deferred.
+The frontend provides a shared searchable instrument catalog and account-scoped
+holding forms. Position valuation, transactions, and cash adjustments remain deferred.
 
 ## Price observations
 
@@ -390,5 +389,7 @@ observations remain separate records in insertion order. Repeating POST appends
 another entry, so a retry after an uncertain response can produce a duplicate.
 Existing instruments without observations return an empty array; unknown instruments
 return 404. History is in memory and resets on restart. This slice provides the
-backend record/list workflow; a price interface, automatic feeds, valuation of
-holdings, FX conversion, and aggregate reporting remain deferred.
+record/list workflow in both the API and frontend. The browser shows newest-first
+history, highlights the latest observation, and accepts optional local date/time
+entry converted to UTC. Automatic feeds, valuation of holdings, FX conversion,
+and aggregate reporting remain deferred.

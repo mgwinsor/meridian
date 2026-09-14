@@ -8,7 +8,7 @@
 
 Build the application in small vertical slices with explicit domain boundaries and minimal abstractions.
 
-The current account, cash, and property application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, property, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `position`, `price`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations, positions have account-scoped set/list operations, and price observations have instrument-scoped record/list operations. These three features have no frontend interface yet.
+The current account, cash, property, instrument, position, and price application is implemented end to end. A React/TypeScript frontend uses all 17 Go HTTP operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `position`, `price`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations, positions have account-scoped set/list operations, and price observations have instrument-scoped record/list operations. The frontend provides a shared searchable instrument catalog, account holdings, and price recording/history.
 
 Storage is still process-local and in memory. Broader architecture for other holdings, valuation, allocation, persistent storage, authentication, or deployment remains deferred until one of those requirements becomes the next vertical slice.
 
@@ -402,13 +402,13 @@ Current tests cover:
 - standalone property creation, empty and ordered lists, duplicate names, canonical IDs, exact values, atomic concurrent replacement, missing properties, validation precedence, repository failures, and method behavior;
 - normal liveness/readiness, readiness during shutdown, and unsupported health methods.
 
-The frontend uses Bun's test runner for API-client failure behavior and exact money/name validation. Its integration script imports the same API client as React and runs it through the Vite proxy against the real Go server. That check exercises all ten operations, including account discovery, empty collections, amount normalization, cash and property replacement, exact numeric bounds, duplicate property names, and representative 400/404 responses.
+The frontend uses Bun's test runner for API-client failure behavior and exact money/name validation. Its integration script imports the same API client as React and runs it through the Vite proxy against the real Go server. That check exercises all 17 operations, including account discovery, empty collections, amount normalization, cash and property replacement, exact numeric bounds, duplicate property names, instrument discovery, exact fractional holdings, timestamp normalization, duplicate price observations, and representative 400/404 responses.
 
 `NewID` and `ParseID` are exercised indirectly by HTTP and domain tests; they do not currently have dedicated tests.
 
 ## 14. Frontend and end-to-end integration
 
-The frontend is a React 19 and TypeScript 6 single-page application built by Vite 8 and managed with Bun. It is intentionally small: `App.tsx` composes sibling account and property workspace regions, account creation and selection, selected-account cash details, and backend connection status without a router or global state library.
+The frontend is a React 19 and TypeScript 6 single-page application built by Vite 8 and managed with Bun. It is intentionally small: `App.tsx` composes sibling account, instrument, and property workspace regions, account creation and selection, selected-account cash and holdings, and backend connection status without a router or global state library.
 
 ```text
 React components
@@ -422,13 +422,21 @@ Vite/reverse proxy
 Go HTTP handlers
 ```
 
-`api.ts` owns the ten browser operations and the distinction between transport errors and status-bearing API errors. Requests have a ten-second timeout and are not retried automatically. Product data is loaded from the backend; the frontend does not keep a second durable store. `useResource` ignores results after a component or selected-account load becomes inactive, which prevents a late response from replacing newer state. The property region is mounted independently of account selection, so properties load with no account and account switching preserves property data and drafts.
+`api.ts` owns the 17 browser operations and the distinction between transport errors and status-bearing API errors. Requests have a ten-second timeout and are not retried automatically. Product data is loaded from the backend; the frontend does not keep a second durable store. `useResource` ignores results after a component or selected-account load becomes inactive, which prevents a late response from replacing newer state. The property region is mounted independently of account selection, so properties load with no account and account switching preserves property data and drafts.
+
+`Instruments.tsx` consumes a shared catalog resource also used by account holding
+selectors. `Positions.tsx` loads holdings separately from cash. `Prices.tsx` loads
+price history separately from instrument details and preserves exact server
+timestamps. Account and instrument detail components are keyed by identity to
+isolate drafts and late responses. `investments.ts` validates exact quantities and
+converts optional local observation times to UTC without silently rolling invalid
+dates forward.
 
 `money.ts` mirrors the backend's whitespace, syntax, currency-precision, and signed-`int64` limit checks so invalid balances can be rejected before a request. Amounts remain strings throughout the form and API client. The backend remains authoritative and repeats all validation.
 
 During development and preview, Vite proxies `/api`, `/livez`, and `/readyz` to `http://localhost:8080` by default; `API_PROXY_TARGET` can override that target. The browser therefore uses origin-relative URLs and the Go server does not currently need CORS handling. A static production build requires the deployment host or reverse proxy to provide equivalent routing because Vite's proxy is not embedded in built assets.
 
-The frontend/backend integration is complete for the current account, cash, and standalone property scope. It does not imply that the larger wealth-dashboard reporting domain is implemented.
+The frontend/backend integration is complete for the current account, cash, standalone property, instrument, position, and price scope. It does not imply that the larger wealth-dashboard reporting domain is implemented.
 
 ## 15. Decisions intentionally deferred
 
@@ -437,7 +445,6 @@ The backend does not yet fix an architecture for:
 - persistent repository wiring, migrations, or a SQL schema;
 - `country.Code`;
 - account type, institution metadata, or retirement classification;
-- instrument management in the frontend and holdings;
 - the read-side Asset projection that may combine property, cash, and future positions;
 - valuation and FX;
 - portfolio grouping and allocation calculations;
@@ -476,8 +483,8 @@ The feature owns its repository interface and uses narrow account and instrument
 lookup interfaces. In-memory storage is keyed by account and instrument, protected
 by a mutex, and returns detached list snapshots. Writes are idempotent and the last
 completed save wins. HTTP responses include accountId, instrumentId, and quantity.
-Position valuation, transactions, cash adjustments, and a frontend interface for
-instruments and positions remain deferred.
+The frontend provides instrument management and account holding forms.
+Position valuation, transactions, and cash adjustments remain deferred.
 
 ## Price observation slice
 
@@ -511,5 +518,5 @@ fractional digits are truncated. Zero time and UTC years outside 0000–9999 are
 invalid. Responses use RFC3339Nano with a `Z` suffix and omit trailing fractional
 zeroes. Historical and future timestamps are accepted. POST is not idempotent;
 retries append another observation. Storage resets on restart. Price feeds,
-position valuation, latest-price selection, and frontend price management are
-deferred.
+position valuation, and backend latest-price selection are deferred. The frontend
+records observations and displays newest-first history with its latest entry highlighted.

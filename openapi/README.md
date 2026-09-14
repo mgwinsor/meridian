@@ -22,17 +22,17 @@ the instrument metadata, account-held position, and price observation APIs.
 | Enter a property and its current manual value | `POST /api/v1/properties` | Implemented |
 | Discover all properties and current values | `GET /api/v1/properties` | Implemented |
 | Replace a property's current manual value | `PUT /api/v1/properties/{propertyId}/value` | Implemented |
-| Create instrument metadata | `POST /api/v1/instruments` | Implemented (backend) |
-| Discover instruments | `GET /api/v1/instruments` | Implemented (backend) |
-| Retrieve an instrument | `GET /api/v1/instruments/{id}` | Implemented (backend) |
-| View an account’s positions | `GET /api/v1/accounts/{id}/positions` | Implemented (backend) |
-| Set a holding quantity | `PUT /api/v1/accounts/{id}/positions/{instrumentID}` | Implemented (backend) |
-| Record an instrument price observation | `POST /api/v1/instruments/{id}/prices` | Implemented (backend) |
-| View an instrument's price history | `GET /api/v1/instruments/{id}/prices` | Implemented (backend) |
+| Create instrument metadata | `POST /api/v1/instruments` | Implemented |
+| Discover instruments | `GET /api/v1/instruments` | Implemented |
+| Retrieve an instrument | `GET /api/v1/instruments/{id}` | Implemented |
+| View an account’s positions | `GET /api/v1/accounts/{id}/positions` | Implemented |
+| Set a holding quantity | `PUT /api/v1/accounts/{id}/positions/{instrumentID}` | Implemented |
+| Record an instrument price observation | `POST /api/v1/instruments/{id}/prices` | Implemented |
+| View an instrument's price history | `GET /api/v1/instruments/{id}/prices` | Implemented |
 
 Each operation has an `x-implementation-status` marker. All seventeen operations
-are implemented; the ten account, cash, property, and health operations are used
-by the frontend. Instrument, position, and price management currently have no frontend interface.
+are implemented and used by the frontend, including instrument discovery, account
+holdings, and price recording/history.
 Durable storage is a separate implementation concern and does not require a new
 endpoint.
 
@@ -177,8 +177,8 @@ otherwise full holdings (`accountId`, `instrumentId`, `quantity`) ordered by ins
 Zero remains a holding. Quantities use exact nonnegative decimal strings with no
 fixed precision or magnitude limit. Whitespace and redundant zeroes are normalized;
 signs, exponents, and malformed decimals are rejected. Last completed save wins.
-Storage is in memory. Position valuation, cash changes, holding history, and frontend
-position management are deferred.
+Storage is in memory. The frontend supports setting and listing account holdings.
+Position valuation, cash changes, and holding history are deferred.
 
 ## Price observations
 
@@ -203,4 +203,4 @@ plain-text 400/404/500 convention.
 
 Observations append, including identical requests or timestamps; POST retries are
 not idempotent. History resets on restart. This API does not select a latest price,
-convert currency, value positions, or fetch market data. There is no price frontend.
+convert currency, value positions, or fetch market data. The frontend records prices and displays newest-first history with the latest observation highlighted.
