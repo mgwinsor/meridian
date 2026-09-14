@@ -8,7 +8,7 @@
 
 Build the application in small vertical slices with explicit domain boundaries and minimal abstractions.
 
-The current account, cash, and property application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, property, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `position`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations, and positions have account-scoped set/list operations. Neither has a frontend interface yet.
+The current account, cash, and property application is implemented end to end. A React/TypeScript frontend uses all of the Go backend's account, cash, property, and health operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `position`, `price`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations, positions have account-scoped set/list operations, and price observations have instrument-scoped record/list operations. These three features have no frontend interface yet.
 
 Storage is still process-local and in memory. Broader architecture for other holdings, valuation, allocation, persistent storage, authentication, or deployment remains deferred until one of those requirements becomes the next vertical slice.
 
@@ -476,5 +476,40 @@ The feature owns its repository interface and uses narrow account and instrument
 lookup interfaces. In-memory storage is keyed by account and instrument, protected
 by a mutex, and returns detached list snapshots. Writes are idempotent and the last
 completed save wins. HTTP responses include accountId, instrumentId, and quantity.
-Pricing, valuation, transactions, cash adjustments, and a frontend interface for
+Position valuation, transactions, cash adjustments, and a frontend interface for
 instruments and positions remain deferred.
+
+## Price observation slice
+
+`price.Observation` records an `instrument.ID`, a `money.Amount`, and an
+`ObservedAt time.Time`. The constructor validates the amount and timestamp and
+normalizes the instant to UTC. The service accepts an amount string, loads the
+instrument, and constructs the amount using its quote currency with `money.Parse`.
+Every recorded price therefore uses the instrument's quote currency.
+
+The price package owns its repository interface and a narrow `InstrumentFinder`
+interface. The service verifies instrument existence before persistence or listing.
+The in-memory repository uses a mutex-protected map of instrument IDs to observation
+slices and returns detached snapshots. Saving appends, including identical entries;
+listing sorts chronologically, retaining insertion order for equal instants.
+
+`POST /api/v1/instruments/{id}/prices` accepts `amount` and optional `observedAt`
+and returns 201 with `instrumentId`, the derived `currency`, `amount`, and `observedAt`.
+When the timestamp is omitted, the HTTP handler uses the server's current time.
+Explicit null or empty timestamps are invalid. Unknown request fields, including
+`currency`, are ignored and cannot override the instrument's quote currency.
+`GET /api/v1/instruments/{id}/prices` returns `{"observations":[]}` when an existing
+instrument has no observations, or its full ordered history. Invalid input returns
+400, missing instruments return 404, and unexpected dependency failures return 500
+using the existing plain-text convention. The server wires the repository, service,
+and handler alongside instruments and positions.
+
+Amounts reuse the currency-specific precision and signed-int64 minor-unit limits
+of `money.Amount`, including zero. Supplied observation times are parsed
+with Go's RFC 3339 parser; all times are stored in UTC at nanosecond precision. Excess
+fractional digits are truncated. Zero time and UTC years outside 0000–9999 are
+invalid. Responses use RFC3339Nano with a `Z` suffix and omit trailing fractional
+zeroes. Historical and future timestamps are accepted. POST is not idempotent;
+retries append another observation. Storage resets on restart. Price feeds,
+position valuation, latest-price selection, and frontend price management are
+deferred.

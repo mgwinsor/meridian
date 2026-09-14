@@ -4,9 +4,9 @@
 backend implementation. It is based on the **v1.4**
 [product design](../docs/product-design.md) and
 [architecture](../docs/architecture.md), checked against the account, cash, property,
-currency, money, and health code and the scenarios in `hurl/`.
-Contract version **0.4.0** includes the implemented property-asset slice and
-the instrument metadata and account-held position APIs.
+instrument, position, price, currency, money, and health code and the scenarios in `hurl/`.
+Contract version **0.5.0** includes the implemented property-asset slice and
+the instrument metadata, account-held position, and price observation APIs.
 
 ## Flows and delivery status
 
@@ -27,10 +27,12 @@ the instrument metadata and account-held position APIs.
 | Retrieve an instrument | `GET /api/v1/instruments/{id}` | Implemented (backend) |
 | View an account’s positions | `GET /api/v1/accounts/{id}/positions` | Implemented (backend) |
 | Set a holding quantity | `PUT /api/v1/accounts/{id}/positions/{instrumentID}` | Implemented (backend) |
+| Record an instrument price observation | `POST /api/v1/instruments/{id}/prices` | Implemented (backend) |
+| View an instrument's price history | `GET /api/v1/instruments/{id}/prices` | Implemented (backend) |
 
-Each operation has an `x-implementation-status` marker. All fifteen operations
+Each operation has an `x-implementation-status` marker. All seventeen operations
 are implemented; the ten account, cash, property, and health operations are used
-by the frontend. Instrument and position management currently have no frontend interface.
+by the frontend. Instrument, position, and price management currently have no frontend interface.
 Durable storage is a separate implementation concern and does not require a new
 endpoint.
 
@@ -109,7 +111,7 @@ repository and the existing currency/money types.
   envelopes. A future error-envelope migration must be explicit and coordinated.
 - Preserve the existing decoder's tolerance of unknown fields. Clients use only
   documented fields. Response objects have fixed shapes and no nullable values.
-- No server timestamps, uploads, deletes, background operations, request IDs,
+- Price timestamps default to server time when omitted. No uploads, deletes, background operations, request IDs,
   throttling headers, or conditional-write semantics are currently promised.
 
 For UI implementation, each collection has populated and empty examples; each
@@ -144,8 +146,8 @@ contract revision rather than guess independently:
 | Introduce authentication | Identity provider/session transport, workspace ownership, authorization boundaries, CSRF/CORS requirements, and coordinated 401/403/error behavior |
 | Refresh external market data | Provider integrations, credentials, rate limits, synchronous versus asynchronous jobs, job polling and failure/retry states |
 
-When timestamps are introduced, use RFC 3339 `date-time` values and explicitly
-settle timezone/precision in that revision. Do not infer a current valuation
+Price observation timestamps use RFC 3339 `date-time` values, normalized to UTC
+at nanosecond precision. Do not infer a current valuation
 timestamp from when a balance was fetched. Upload/import is not a requirement of
 the current baseline; define a transport only if an import story is selected.
 
@@ -175,5 +177,30 @@ otherwise full holdings (`accountId`, `instrumentId`, `quantity`) ordered by ins
 Zero remains a holding. Quantities use exact nonnegative decimal strings with no
 fixed precision or magnitude limit. Whitespace and redundant zeroes are normalized;
 signs, exponents, and malformed decimals are rejected. Last completed save wins.
-Storage is in memory. Pricing, valuation, cash changes, history, and frontend
+Storage is in memory. Position valuation, cash changes, holding history, and frontend
 position management are deferred.
+
+## Price observations
+
+An observation contains `instrumentId`, `currency`, `amount`, and `observedAt`.
+POST accepts `amount` and optional `observedAt` at `/api/v1/instruments/{id}/prices`
+and returns the full observation with 201. The instrument must exist; its quote
+currency determines the amount's currency, precision, and limits. Unknown fields,
+including `currency`, are ignored and cannot override the instrument's denomination.
+Amounts reuse the exact nonnegative money rules. GET on the same path returns
+`{"observations":[]}` for an instrument without observations, or all observations
+ordered chronologically with insertion order breaking timestamp ties.
+
+Omitted timestamps default to the server's current time during request handling.
+Explicit null and empty timestamps are invalid.
+Supplied timestamps are parsed with Go's RFC 3339 parser. They
+require a timezone, normalize to UTC, and retain nanosecond precision (additional
+fractional digits are truncated). Responses use RFC3339Nano, omitting trailing
+fractional zeroes. Zero time and UTC years outside 0000–9999 are rejected.
+Future and historical times are accepted. Validation order is instrument ID,
+JSON, supplied timestamp syntax, instrument existence, amount, then timestamp bounds. Errors retain the
+plain-text 400/404/500 convention.
+
+Observations append, including identical requests or timestamps; POST retries are
+not idempotent. History resets on restart. This API does not select a latest price,
+convert currency, value positions, or fetch market data. There is no price frontend.

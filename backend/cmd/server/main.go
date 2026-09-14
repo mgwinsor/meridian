@@ -16,6 +16,7 @@ import (
 	"github.com/mgwinsor/meridian/backend/internal/health"
 	"github.com/mgwinsor/meridian/backend/internal/instrument"
 	"github.com/mgwinsor/meridian/backend/internal/position"
+	"github.com/mgwinsor/meridian/backend/internal/price"
 	"github.com/mgwinsor/meridian/backend/internal/property"
 )
 
@@ -42,6 +43,9 @@ func main() {
 	positionRepository := position.NewMemoryRepository()
 	positionService := position.NewService(accountRepository, instrumentRepository, positionRepository)
 	positionHandler := position.NewHandler(positionService)
+	priceRepository := price.NewMemoryRepository()
+	priceService := price.NewService(instrumentRepository, priceRepository)
+	priceHandler := price.NewHandler(priceService)
 
 	router := http.NewServeMux()
 	healthHandler.RegisterRoutes(router)
@@ -50,6 +54,7 @@ func main() {
 	propertyHandler.RegisterRoutes(router)
 	instrumentHandler.RegisterRoutes(router)
 	positionHandler.RegisterRoutes(router)
+	priceHandler.RegisterRoutes(router)
 
 	httpServer := &http.Server{
 		Addr:    ":" + strconv.Itoa(port),
