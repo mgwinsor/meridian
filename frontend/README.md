@@ -8,11 +8,12 @@ list properties, replace manual property values, create/list/select instruments,
 set account holdings, record/list price observations, and check liveness/readiness.
 
 This completes the browser-to-backend account, cash, property, instrument,
-position, and price workflows. The next project
-phase is either durable database integration for the existing repositories or a
-new end-to-end domain slice that makes the wealth dashboard more useful. The
-current UI supports manual property valuation and investment holdings; position
-valuation, FX conversion, combined net worth, and allocation remain outside this scope.
+position, and price workflows. The next project milestone can cover complete
+storage for these workflows, a wealth overview with valuation and reporting,
+or both when they serve one product outcome.
+The current UI supports manual property valuation and investment holdings;
+position valuation, FX conversion, combined net worth, and allocation remain
+outside this scope.
 
 ## Run locally
 

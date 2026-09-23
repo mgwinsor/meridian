@@ -123,14 +123,14 @@ an ambiguous response. The API provides no aggregate across currencies.
 
 ## Broader wealth-dashboard boundary
 
-The property slice above is the selected domain expansion from the product
-vision. Net worth, allocation drill-down, retirement classification, and target
-drift remain outside this contract revision. The baseline's deferral language
-does not prevent selecting future slices; each selection should resolve only
-the domain decisions needed for its own workflow.
+The property workflow above is part of the implemented product baseline.
+Net worth, allocation drill-down, retirement classification, and target drift
+remain outside this contract revision. Plan related future flows together as a
+product milestone and resolve their shared domain and API decisions before
+implementation.
 
 The following is a requirements map for extending this same contract when those
-vertical slices are selected. These are **not reserved paths or available APIs**.
+capabilities are planned. These are **not reserved paths or available APIs**.
 Frontend and backend implementations must agree on these decisions through a
 contract revision rather than guess independently:
 

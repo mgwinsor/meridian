@@ -6,15 +6,15 @@
 
 ## 1. Architecture objective
 
-Build the application in small vertical slices with explicit domain boundaries and minimal abstractions.
+Build coherent, end-to-end product milestones on the established feature boundaries. A milestone can span several packages, API operations, and UI flows while keeping domain ownership explicit and abstractions purposeful.
 
 The current account, cash, property, instrument, position, and price application is implemented end to end. A React/TypeScript frontend uses all 17 Go HTTP operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `position`, `price`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations, positions have account-scoped set/list operations, and price observations have instrument-scoped record/list operations. The frontend provides a shared searchable instrument catalog, account holdings, and price recording/history.
 
-Storage is still process-local and in memory. Broader architecture for other holdings, valuation, allocation, persistent storage, authentication, or deployment remains deferred until one of those requirements becomes the next vertical slice.
+Storage is still process-local and in memory. Broader architecture for other holdings, valuation, allocation, persistent storage, authentication, or deployment remains deferred until a planned milestone needs it.
 
 The guiding rule is:
 
-> Introduce a domain concept or architectural abstraction only when the current vertical slice requires it.
+> Design connected domain concepts and boundaries for the whole milestone; introduce abstractions where they protect shared invariants or clarify ownership.
 
 ## 2. Architectural style
 
@@ -445,7 +445,7 @@ The backend does not yet fix an architecture for:
 - persistent repository wiring, migrations, or a SQL schema;
 - `country.Code`;
 - account type, institution metadata, or retirement classification;
-- the read-side Asset projection that may combine property, cash, and future positions;
+- the read-side Asset projection that may combine property, cash, and positions;
 - valuation and FX;
 - portfolio grouping and allocation calculations;
 - authentication and authorization;
@@ -455,12 +455,11 @@ The backend does not yet fix an architecture for:
 
 ## 16. Current baseline and next change
 
-The account create/list/retrieve, cash set/list, and standalone property create/list/revalue vertical slices, their React interface, shared HTTP contract, in-memory repositories, operational health checks, graceful shutdown, and end-to-end integration are implemented and tested.
+The account, cash, property, instrument, position, and price workflows, their React interface, shared HTTP contract, in-memory repositories, operational health checks, graceful shutdown, and end-to-end integration are implemented and tested.
 
-The next phase has two legitimate architectural directions:
+Plan the next change as a complete milestone spanning its needed layers. Position valuation, a read-side wealth projection, and allocation reporting can be designed together when they serve one user workflow. Define the valuation, FX, missing-data, and classification rules across that workflow before adding contracts or code.
 
-1. **Database integration:** implement durable account, cash, and property repositories, migrations, connection lifecycle, configuration, and dependency-aware readiness while keeping feature-owned repository interfaces and the existing HTTP contract stable.
-2. **Domain expansion:** select the smallest useful wealth workflow beyond current cash and property, then add only the domain types, API operations, and UI needed for that vertical slice. Likely candidates include position valuation or the read-side Asset reporting projection and require explicit decisions about instruments, valuation, FX, or classification before implementation.
+Durable persistence can be a milestone in its own right or join a reporting milestone. Cover all existing records, including instruments, positions, and price observations; define migrations, connection lifecycle, configuration, dependency-aware readiness, and compatibility with existing HTTP behavior. Keep repository interfaces owned by their features.
 
 The PostgreSQL service in `compose.yaml` is only preparatory infrastructure today; no driver, schema, migration, database repository, or server wiring exists. Until persistence is selected and implemented, all application data is lost when the Go process restarts.
 

@@ -28,25 +28,25 @@ The allocation explorer remains the central product idea. The same underlying we
 
 ## 3. Product principles
 
-### 3.1 Build the domain incrementally
+### 3.1 Plan connected domain capabilities together
 
-The domain model will not be designed exhaustively up front. New domain concepts are introduced only when a concrete product requirement requires them.
+Use the established account, cash, property, instrument, position, and price model as the foundation for larger product milestones. Plan related domain concepts together when they support a coherent user outcome. Define their shared invariants before implementation, without designing unrelated future concepts in advance.
 
-The implemented application currently models custody accounts, current cash balances, directly owned properties, instrument metadata, account-held positions, and price observations. All are wired end to end: the React frontend uses the Go HTTP API to manage accounts, cash, and holdings and, independently, properties and a shared instrument catalog with price history. Concepts such as countries, portfolio groupings, aggregate reporting, FX, and rebalancing rules remain deferred until a vertical slice requires them.
+The implemented application currently models custody accounts, current cash balances, directly owned properties, instrument metadata, account-held positions, and price observations. All are wired end to end: the React frontend uses the Go HTTP API to manage accounts, cash, and holdings and, independently, properties and a shared instrument catalog with price history. Concepts such as countries, portfolio groupings, aggregate reporting, FX, and rebalancing rules remain deferred until a planned milestone requires them.
 
 ### 3.2 Avoid premature classifications
 
 An account should not acquire fields merely because they may be useful later. For example, the current model does not yet contain institution, country, currency, retirement status, or account type.
 
-Those concepts will be evaluated independently when a real use case requires them.
+Evaluate those concepts together when a planned product outcome requires them.
 
 ### 3.3 Preserve domain meaning
 
 When new concepts are added, domain types should express meaningful distinctions rather than relying on loosely typed primitive values. However, dedicated types should only be introduced when they protect a real invariant or clarify an actual requirement.
 
-### 3.4 Prefer a useful vertical slice over broad scaffolding
+### 3.4 Deliver complete product milestones
 
-Each implementation step should produce one complete behavior through the application's layers before adding another domain area.
+Group related workflows into a substantial, usable outcome. A milestone may span several domain areas, API operations, and UI flows. Complete the needed contract, backend, frontend, and tests together so the outcome works end to end.
 
 ## 4. Current domain model
 
@@ -318,20 +318,19 @@ The following are part of the broader product direction but are **not part of th
 
 Their presence in the long-term product vision does not imply a particular future data model.
 
-## 10. Next product decision
+## 10. Next product milestone
 
-With the current frontend and backend fully wired, frontend integration is no longer a candidate next step. The next phase should choose one of two directions:
+Choose the next milestone as a coherent outcome spanning all needed layers. One option is a wealth overview that values positions alongside cash and property and explains missing prices or FX rates. Another is durable storage for all current records. These can be combined when the intended outcome needs both reporting and reliable retention.
 
-1. **Durable persistence.** Replace or supplement the in-memory repositories with database-backed account, cash, and property repositories, define migrations and schema ownership, wire the database into startup/readiness/shutdown, and preserve the existing HTTP behavior.
-2. **A more useful wealth domain.** Add the smallest end-to-end capability beyond cash and property that moves the product toward a wealth overview—for example, position valuation or the read-side Asset projection. This path must first settle only the ownership, valuation, classification, and FX decisions needed by that slice.
+For reporting, settle valuation source and timing, reporting currency and FX behavior, missing-data treatment, aggregation without double counting, and any required classification as a group. For persistence, cover accounts, cash, properties, instruments, positions, and price observations, and define migrations and server lifecycle behavior. Keep contracts, implementation, and UI aligned.
 
-These paths can eventually converge, but the next story should have one primary outcome. Database integration improves durability without expanding what the product can express; domain expansion improves usefulness while data remains ephemeral unless persistence is addressed alongside it.
+Scope work by user outcome and shared invariants, not by a fixed number of endpoints or a single domain package.
 
 ## 11. MVP direction beyond the current application
 
 The intended MVP remains a useful personal wealth overview application. A later MVP should support enough concepts to show multiple assets across accounts and provide meaningful allocation exploration.
 
-The exact sequence is intentionally not fixed beyond the completed account/cash/property application. Each new slice must earn any new domain concepts it introduces.
+The exact sequence is intentionally not fixed beyond the current account, cash, property, instrument, position, and price application. Plan connected capabilities as milestones and introduce domain concepts that those milestones need.
 
 ## 12. Non-goals
 
