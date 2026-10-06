@@ -37,6 +37,12 @@ Open the URL Vite prints (normally <http://localhost:5173>). The connection
 indicator should say **Backend connected**. Create an account, save a cash
 balance, then reload the page and select the account to confirm server state.
 
+To access the dev server from your tailnet, leave it bound to the IPv4 loopback
+address and run
+`tailscale serve 5173`. Open the HTTPS URL Tailscale reports. Vite permits
+`*.ts.net` hostnames for this proxied access while still listening only on the
+local machine.
+
 Vite proxies `/api`, `/livez`, and `/readyz` to `http://localhost:8080`, so browser
 requests stay on the frontend origin and do not need backend CORS changes.
 To change the backend address, copy `.env.example` to `.env.local`, change
