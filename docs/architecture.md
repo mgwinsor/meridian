@@ -10,7 +10,7 @@ Build coherent, end-to-end product milestones on the established feature boundar
 
 The current account, cash, property, instrument, position, and price application is implemented end to end. A React/TypeScript frontend uses all 17 Go HTTP operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `position`, `price`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations, positions have account-scoped set/list operations, and price observations have instrument-scoped record/list operations. The frontend provides a shared searchable instrument catalog, account holdings, and price recording/history.
 
-Storage is still process-local and in memory. Broader architecture for other holdings, valuation, allocation, persistent storage, authentication, or deployment remains deferred until a planned milestone needs it.
+Storage uses PostgreSQL for all six data features. Feature-owned sqlc queries and pgx repositories implement the existing interfaces; goose manages database creation and schema migrations. Broader architecture for other holdings, valuation, allocation, authentication, or deployment remains deferred. See [backend setup](../backend/README.md).
 
 The guiding rule is:
 
@@ -29,32 +29,47 @@ internal/money
 internal/health
 ```
 
-Hexagonal principles apply at the account, cash, and property storage boundaries. Application logic depends on feature-owned repository interfaces rather than concrete in-memory implementations. The codebase does not use a repository-wide `domain/`, `ports/`, `adapters/`, and `infrastructure/` hierarchy; feature cohesion takes priority over architecture-layer folders.
+Hexagonal principles apply at all six feature storage boundaries. Application logic depends on feature-owned repository interfaces rather than concrete in-memory implementations. The codebase does not use a repository-wide `domain/`, `ports/`, `adapters/`, and `infrastructure/` hierarchy; feature cohesion takes priority over architecture-layer folders.
 
 ## 3. Current backend structure
 
 ```text
 backend/
 ├── cmd/
+│   ├── db/
+│   │   └── main.go
 │   └── server/
 │       └── main.go
 ├── internal/
+│   ├── database/
+│   │   ├── database.go
+│   │   ├── migrations.go
+│   │   └── migrations/
 │   ├── account/
 │   │   ├── account.go
 │   │   ├── http.go
 │   │   ├── repository_memory.go
+│   │   ├── repository_postgres.go
+│   │   ├── queries.sql
+│   │   ├── postgres/
 │   │   ├── service.go
 │   │   └── *_test.go
 │   ├── cash/
 │   │   ├── cash.go
 │   │   ├── http.go
 │   │   ├── repository_memory.go
+│   │   ├── repository_postgres.go
+│   │   ├── queries.sql
+│   │   ├── postgres/
 │   │   ├── service.go
 │   │   └── *_test.go
 │   ├── property/
 │   │   ├── property.go
 │   │   ├── http.go
 │   │   ├── repository_memory.go
+│   │   ├── repository_postgres.go
+│   │   ├── queries.sql
+│   │   ├── postgres/
 │   │   ├── service.go
 │   │   └── *_test.go
 │   ├── currency/
@@ -66,11 +81,12 @@ backend/
 │   └── money/
 │       ├── amount.go
 │       └── amount_test.go
+├── sqlc.yaml
 ├── go.mod
 └── go.sum
 ```
 
-The module path is `github.com/mgwinsor/meridian/backend`. It currently declares Go 1.27.1 and depends directly on `github.com/google/uuid` v1.6.0.
+The module path is `github.com/mgwinsor/meridian/backend`. It declares Go 1.27.1 and uses google/uuid, shopspring/decimal, pgx/v5, and goose/v3.
 
 ## 4. Account domain model
 
@@ -128,7 +144,7 @@ cash.Handler
     ↓
 cash.Service ──→ cash.Repository
     │
-    └──────────→ cash.AccountFinder ──→ account.MemoryRepository
+    └──────────→ cash.AccountFinder ──→ account.PostgresRepository
 ```
 
 The service verifies account existence before reading or writing cash. `ListBalances` sorts results lexically by currency code, making the HTTP collection deterministic. The in-memory repository protects its nested account/currency maps with `sync.RWMutex` and returns an allocated empty slice when no balances exist.
@@ -176,10 +192,10 @@ property.Service
     ↓
 property.Repository
     ↓
-property.MemoryRepository
+property.PostgresRepository
 ```
 
-The repository stores a flat map keyed by `property.ID`. `List` returns a snapshot of every property, which the service orders by canonical UUID. `ReplaceValue` holds the repository write lock while replacing the entire `money.Amount`, so currency and minor units change atomically; it never creates a missing property.
+The memory repository used in unit tests stores a flat map keyed by `property.ID`. `List` returns a snapshot of every property, which the service orders by canonical UUID. `ReplaceValue` holds the repository write lock while replacing the entire `money.Amount`, so currency and minor units change atomically; it never creates a missing property.
 
 The HTTP API is:
 
@@ -206,7 +222,7 @@ account.Service
     ↓
 account.Repository
     ↓
-account.MemoryRepository
+account.PostgresRepository
 ```
 
 The HTTP adapter converts transport values and errors, the service coordinates use cases, and the repository owns storage. Request contexts flow from HTTP through the service to repository calls.
@@ -244,9 +260,11 @@ type Repository interface {
 var ErrNotFound = errors.New("account not found")
 ```
 
-`MemoryRepository`, implemented in `repository_memory.go`, is the only current repository. It stores accounts in a map keyed by `account.ID` and protects reads, list snapshots, and writes with `sync.RWMutex`. `FindByID` returns `ErrNotFound` when the key is absent. `List` returns an allocated snapshot, including a non-nil empty slice. Saving the same ID again replaces the stored value.
+`PostgresRepository` in `repository_postgres.go` is used by the server. `MemoryRepository` in `repository_memory.go` remains available for unit tests. It stores accounts in a map keyed by `account.ID` and protects reads, list snapshots, and writes with `sync.RWMutex`. `FindByID` returns `ErrNotFound` when the key is absent. `List` returns an allocated snapshot, including a non-nil empty slice. Saving the same ID again replaces the stored value.
 
-Storage is process-local and ephemeral. There is a PostgreSQL service in the root `compose.yaml`, but the backend has no PostgreSQL driver, repository implementation, migrations, or database wiring and does not currently use that service.
+Each feature owns `queries.sql`, sqlc-generated code in `postgres/`, and a `repository_postgres.go` adapter. Repository interfaces and application services remain feature-owned. The operational `internal/database` package owns pgx pool setup and embedded goose migrations; `cmd/db` exposes init, up, down, and status. `init` creates a missing database through an idempotent goose Go migration, then applies SQL migrations. Compose supplies the development PostgreSQL cluster and role.
+
+Cash and position writes use primary-key upserts. Property value replacement updates currency and minor units in one statement and returns the resulting row; missing rows map to the existing feature error. Foreign keys reject orphan records. Money uses nonnegative bigint minor units, quantities use NUMERIC(38,18) with matching backend bounds, and prices use a single timestamptz column after backend truncation to microseconds. A separate price identity column preserves duplicates and ordering for equal instants. SQL migrations provide both up and down operations; goose serializes runners with an advisory lock.
 
 ## 10. Account HTTP adapter
 
@@ -320,7 +338,7 @@ Error responses use `http.Error`, so they are plain text. Repository details are
 The `health` package owns liveness and readiness independently of the versioned product API:
 
 ```go
-func NewHandler() *Handler
+func NewHandler(checkDependency func(context.Context) error) *Handler
 func (h *Handler) RegisterRoutes(mux *http.ServeMux)
 func (h *Handler) BeginShutdown()
 ```
@@ -332,23 +350,23 @@ It registers:
 | `GET /livez` | 200 `OK` | 200 `OK` |
 | `GET /readyz` | 200 `OK` | 503 `shutting down` |
 
-Responses use `text/plain; charset=utf-8`. Shutdown state is held in an `atomic.Bool`, allowing concurrent health requests to observe the transition safely. Unsupported methods on these routes receive HTTP 405 from `http.ServeMux`.
+Readiness also pings PostgreSQL with a one-second timeout and returns 503 `database unavailable` on failure; it recovers when connectivity returns. Liveness is independent of storage. Responses use `text/plain; charset=utf-8`. Shutdown state is held in an `atomic.Bool`, allowing concurrent health requests to observe the transition safely. Unsupported methods on these routes receive HTTP 405 from `http.ServeMux`.
 
 ## 12. Composition root and process lifecycle
 
 `cmd/server/main.go` assembles concrete dependencies:
 
 ```go
-accountRepository := account.NewMemoryRepository()
+accountRepository := account.NewPostgresRepository(pool)
 accountService := account.NewService(accountRepository)
 accountHandler := account.NewHandler(accountService)
-cashRepository := cash.NewMemoryRepository()
+cashRepository := cash.NewPostgresRepository(pool)
 cashService := cash.NewService(accountRepository, cashRepository)
 cashHandler := cash.NewHandler(cashService)
-propertyRepository := property.NewMemoryRepository()
+propertyRepository := property.NewPostgresRepository(pool)
 propertyService := property.NewService(propertyRepository)
 propertyHandler := property.NewHandler(propertyService)
-healthHandler := health.NewHandler()
+healthHandler := health.NewHandler(pool.Ping)
 
 router := http.NewServeMux()
 healthHandler.RegisterRoutes(router)
@@ -356,6 +374,8 @@ accountHandler.RegisterRoutes(router)
 cashHandler.RegisterRoutes(router)
 propertyHandler.RegisterRoutes(router)
 ```
+
+The server opens and pings a shared pgx pool using `DATABASE_URL`, verifies goose migration versions before serving, and closes the pool after draining HTTP requests. Database setup is explicit (`go run ./cmd/db init`); the server does not apply application migrations.
 
 The server currently:
 
@@ -372,7 +392,7 @@ Liveness remains available during the drain period. Port, environment, deregistr
 
 ## 13. Testing strategy and current coverage
 
-Tests use only the Go standard library. Table-driven tests are used where several cases share the same behavior.
+Tests use Go's testing package; opt-in PostgreSQL integration tests use pgx and goose against an isolated temporary database. Table-driven tests are used where several cases share the same behavior.
 
 The package choice reflects the level under test:
 
@@ -442,7 +462,6 @@ The frontend/backend integration is complete for the current account, cash, stan
 
 The backend does not yet fix an architecture for:
 
-- persistent repository wiring, migrations, or a SQL schema;
 - `country.Code`;
 - account type, institution metadata, or retirement classification;
 - the read-side Asset projection that may combine property, cash, and positions;
@@ -450,18 +469,16 @@ The backend does not yet fix an architecture for:
 - portfolio grouping and allocation calculations;
 - authentication and authorization;
 - background workers and market-data integrations;
-- runtime configuration beyond the current constants;
+- runtime configuration beyond `DATABASE_URL` and the current constants;
 - production deployment.
 
 ## 16. Current baseline and next change
 
-The account, cash, property, instrument, position, and price workflows, their React interface, shared HTTP contract, in-memory repositories, operational health checks, graceful shutdown, and end-to-end integration are implemented and tested.
+The account, cash, property, instrument, position, and price workflows, their React interface, shared HTTP contract, PostgreSQL repositories, operational health checks, graceful shutdown, and end-to-end integration are implemented and tested.
 
 Plan the next change as a complete milestone spanning its needed layers. Position valuation, a read-side wealth projection, and allocation reporting can be designed together when they serve one user workflow. Define the valuation, FX, missing-data, and classification rules across that workflow before adding contracts or code.
 
-Durable persistence can be a milestone in its own right or join a reporting milestone. Cover all existing records, including instruments, positions, and price observations; define migrations, connection lifecycle, configuration, dependency-aware readiness, and compatibility with existing HTTP behavior. Keep repository interfaces owned by their features.
-
-The PostgreSQL service in `compose.yaml` is only preparatory infrastructure today; no driver, schema, migration, database repository, or server wiring exists. Until persistence is selected and implemented, all application data is lost when the Go process restarts.
+Durable storage now covers all current records. Unit tests retain the memory implementations. PostgreSQL integration tests cover database creation, migration rollback/reapply, reconnect persistence, exact values, duplicate observations, concurrent property replacements, and foreign-key constraints. Run them using the [backend instructions](../backend/README.md).
 
 ## Current position slice
 
@@ -476,11 +493,12 @@ accounts return an empty array; unknown accounts return 404.
 conversion or currency-specific precision limits. Its zero value represents zero.
 Input accepts whole and fractional digits, trims whitespace, and normalizes
 redundant zeroes. Negative values, signs, exponents, and malformed decimals fail
-validation. There is no fixed magnitude or precision limit.
+validation. Quantities fit NUMERIC(38,18): at most 20 integer and 18 fractional digits after removing redundant zeroes. Excess precision or magnitude is rejected without rounding.
 
 The feature owns its repository interface and uses narrow account and instrument
-lookup interfaces. In-memory storage is keyed by account and instrument, protected
-by a mutex, and returns detached list snapshots. Writes are idempotent and the last
+lookup interfaces. PostgreSQL storage uses the account/instrument pair as its
+primary key and replaces quantities with an atomic upsert. Unit tests retain
+the mutex-protected memory implementation. Writes are idempotent and the last
 completed save wins. HTTP responses include accountId, instrumentId, and quantity.
 The frontend provides instrument management and account holding forms.
 Position valuation, transactions, and cash adjustments remain deferred.
@@ -495,7 +513,7 @@ Every recorded price therefore uses the instrument's quote currency.
 
 The price package owns its repository interface and a narrow `InstrumentFinder`
 interface. The service verifies instrument existence before persistence or listing.
-The in-memory repository uses a mutex-protected map of instrument IDs to observation
+The memory implementation used in unit tests uses a mutex-protected map of instrument IDs to observation
 slices and returns detached snapshots. Saving appends, including identical entries;
 listing sorts chronologically, retaining insertion order for equal instants.
 
@@ -512,10 +530,10 @@ and handler alongside instruments and positions.
 
 Amounts reuse the currency-specific precision and signed-int64 minor-unit limits
 of `money.Amount`, including zero. Supplied observation times are parsed
-with Go's RFC 3339 parser; all times are stored in UTC at nanosecond precision. Excess
-fractional digits are truncated. Zero time and UTC years outside 0000–9999 are
+with Go's RFC 3339 parser; all times are stored in UTC at microsecond precision. Excess
+fractional digits are truncated. Values that truncate to zero time and UTC years outside 0000–9999 are
 invalid. Responses use RFC3339Nano with a `Z` suffix and omit trailing fractional
 zeroes. Historical and future timestamps are accepted. POST is not idempotent;
-retries append another observation. Storage resets on restart. Price feeds,
+retries append another observation. PostgreSQL retains history across restarts. Price feeds,
 position valuation, and backend latest-price selection are deferred. The frontend
 records observations and displays newest-first history with its latest entry highlighted.

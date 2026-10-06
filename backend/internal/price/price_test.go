@@ -32,10 +32,10 @@ func TestNew(t *testing.T) {
 		t.Run(tc.currency, func(t *testing.T) {
 			amount := testAmount(t, tc.currency, tc.value)
 			got, err := New(id, amount, at)
-			if err != nil || got.InstrumentID != id || got.Amount != amount || !got.ObservedAt.Equal(at) {
+			if err != nil || got.InstrumentID != id || got.Amount != amount || !got.ObservedAt.Equal(at.Truncate(time.Microsecond)) {
 				t.Fatalf("New = %+v, %v", got, err)
 			}
-			if got.ObservedAt.Location() != time.UTC || got.ObservedAt.Format(time.RFC3339Nano) != "2026-09-14T04:30:45.123456789Z" {
+			if got.ObservedAt.Location() != time.UTC || got.ObservedAt.Format(time.RFC3339Nano) != "2026-09-14T04:30:45.123456Z" {
 				t.Fatalf("timestamp = %v", got.ObservedAt)
 			}
 		})
@@ -45,12 +45,34 @@ func TestNew(t *testing.T) {
 	}
 	for _, at := range []time.Time{
 		{},
+		time.Date(1, 1, 1, 0, 0, 0, 999, time.UTC),
 		time.Date(-1, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(9999, 12, 31, 23, 0, 0, 0, time.FixedZone("west", -3600)),
 	} {
 		if _, err := New(id, testAmount(t, "USD", "1"), at); !errors.Is(err, ErrInvalidObservedAt) {
 			t.Errorf("timestamp %v: %v", at, err)
+		}
+	}
+}
+
+func TestNewTruncatesToMicroseconds(t *testing.T) {
+	for _, input := range []string{
+		"0000-01-01T00:00:00.000000999Z",
+		"1969-12-31T23:59:59.999999999Z",
+		"2026-09-28T12:00:00.123456789+08:00",
+		"9999-12-31T23:59:59.999999999Z",
+	} {
+		at, err := time.Parse(time.RFC3339Nano, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := New(instrument.NewID(), testAmount(t, "USD", "1"), at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.ObservedAt.Nanosecond()%1000 != 0 || got.ObservedAt.After(at) || at.Sub(got.ObservedAt) >= time.Microsecond {
+			t.Fatalf("%s was not truncated to microseconds: %s", input, got.ObservedAt)
 		}
 	}
 }

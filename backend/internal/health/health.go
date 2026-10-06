@@ -1,16 +1,19 @@
 package health
 
 import (
+	"context"
 	"net/http"
 	"sync/atomic"
+	"time"
 )
 
 type Handler struct {
-	isShuttingDown atomic.Bool
+	isShuttingDown  atomic.Bool
+	checkDependency func(context.Context) error
 }
 
-func NewHandler() *Handler {
-	return &Handler{}
+func NewHandler(checkDependency func(context.Context) error) *Handler {
+	return &Handler{checkDependency: checkDependency}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -28,13 +31,23 @@ func (h *Handler) liveness(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(http.StatusText(http.StatusOK)))
 }
 
-func (h *Handler) readiness(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) readiness(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "text/plain; charset=utf-8")
 
 	if h.isShuttingDown.Load() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("shutting down"))
 		return
+	}
+
+	if h.checkDependency != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+		if err := h.checkDependency(ctx); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("database unavailable"))
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

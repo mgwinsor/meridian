@@ -86,7 +86,7 @@ test('creates and retrieves instrument metadata with encoded identities', async 
 })
 
 test('sets and lists account holdings without rounding fractional quantities', async () => {
-  const position = { accountId: 'account/id', instrumentId: 'instrument/id', quantity: '9223372036854775807999.000000000000000001' }
+  const position = { accountId: 'account/id', instrumentId: 'instrument/id', quantity: '99999999999999999999.999999999999999999' }
   fetchMock.mockResolvedValueOnce(Response.json(position))
   expect(await api.setPosition(position.accountId, position.instrumentId, position.quantity)).toEqual(position)
   expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/accounts/account%2Fid/positions/instrument%2Fid', expect.objectContaining({
@@ -98,7 +98,7 @@ test('sets and lists account holdings without rounding fractional quantities', a
 })
 
 test('records exact prices, preserves timestamp precision and omits the optional time', async () => {
-  const observation = { instrumentId: 'instrument/id', currency: 'USD', amount: '92233720368547758.07', observedAt: '2026-09-14T12:00:00.123456789Z' }
+  const observation = { instrumentId: 'instrument/id', currency: 'USD', amount: '92233720368547758.07', observedAt: '2026-09-14T12:00:00.123456Z' }
   fetchMock.mockResolvedValueOnce(Response.json(observation))
   expect(await api.recordPrice(observation.instrumentId, observation.amount, observation.observedAt)).toEqual(observation)
   expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/instruments/instrument%2Fid/prices', expect.objectContaining({

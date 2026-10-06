@@ -2,34 +2,55 @@
 
 title Meridian — Package Architecture
 
+left to right direction
+
 skinparam componentStyle rectangle
 skinparam packageStyle rectangle
-' skinparam linetype ortho
+skinparam shadowing false
+skinparam nodesep 35
+skinparam ranksep 55
+
 
 package "cmd" {
-    component "server\n<<composition root>>" as Server
+    component "server" as Server <<composition root>>
+    component "db" as DBCommand <<goose migrations>>
 }
 
-package "Application Packages\n(internal/)" {
-    component "account" as Account
-    component "cash" as Cash
-    component "property" as Property
-    component "instrument" as Instrument
-    component "position" as Position
-    component "price" as Price
-    component "money" as Money
-    component "currency" as Currency
-    component "health" as Health
+package "internal" {
+    together {
+        component "account" as Account
+        component "cash" as Cash
+        component "property" as Property
+        component "instrument" as Instrument
+        component "position" as Position
+        component "price" as Price
+    }
+
+    together {
+        component "money" as Money
+        component "currency" as Currency
+    }
+
+    together {
+        component "health" as Health
+        component "database" as Database
+    }
 }
 
-' Composition root
-Server --> Account
-Server --> Cash
-Server --> Health
-Server --> Property
-Server --> Instrument
-Server --> Position
-Server --> Price
+database "PostgreSQL" as Postgres
+
+' Composition root wiring
+Server ..> Account
+Server ..> Cash
+Server ..> Property
+Server ..> Instrument
+Server ..> Position
+Server ..> Price
+Server ..> Health
+Server ..> Database
+
+' Command dependencies
+DBCommand --> Database
 
 ' Internal package dependencies
 Cash --> Account
@@ -39,8 +60,6 @@ Cash --> Currency
 Property --> Money
 Property --> Currency
 
-Money --> Currency
-
 Instrument --> Currency
 
 Position --> Account
@@ -48,5 +67,22 @@ Position --> Instrument
 
 Price --> Instrument
 Price --> Money
+
+Money --> Currency
+
+' Database access
+Database -[#78909C]-> Postgres
+Account -[#78909C]-> Postgres
+Cash -[#78909C]-> Postgres
+Property -[#78909C]-> Postgres
+Instrument -[#78909C]-> Postgres
+Position -[#78909C]-> Postgres
+Price -[#78909C]-> Postgres
+
+legend bottom left
+    Dotted arrows: composition root wiring
+    Solid arrows: package dependencies
+    Blue-gray arrows: database access
+endlegend
 
 @enduml

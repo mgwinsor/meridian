@@ -20,7 +20,7 @@ func New(instrumentID instrument.ID, amount money.Amount, observedAt time.Time) 
 	if amount.String() == "" {
 		return Observation{}, money.ErrInvalidAmount
 	}
-	observedAt = observedAt.UTC()
+	observedAt = observedAt.UTC().Truncate(time.Microsecond)
 	if observedAt.IsZero() || observedAt.Year() < 0 || observedAt.Year() > 9999 {
 		return Observation{}, ErrInvalidObservedAt
 	}

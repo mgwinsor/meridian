@@ -48,7 +48,7 @@ func TestHTTPWorkflow(t *testing.T) {
 	}
 	var want []observationResponse
 	for _, tc := range []struct{ currency, input, amount, at, normalized string }{
-		{"USD", " 00012.3 ", "12.30", "2026-09-14T12:00:00.123456789+08:00", "2026-09-14T04:00:00.123456789Z"},
+		{"USD", " 00012.3 ", "12.30", "2026-09-14T12:00:00.123456789+08:00", "2026-09-14T04:00:00.123456Z"},
 		{"USD", "92233720368547758.07", "92233720368547758.07", "2026-09-14T03:00:00Z", "2026-09-14T03:00:00Z"},
 		{"USD", "0", "0.00", "2026-09-14T03:00:00Z", "2026-09-14T03:00:00Z"},
 		{"USD", "16.00", "16.00", "2026-09-14T03:00:00Z", "2026-09-14T03:00:00Z"},
@@ -139,7 +139,7 @@ func TestHTTPQuoteCurrencyAndDefaultTime(t *testing.T) {
 			mux := http.NewServeMux()
 			NewHandler(NewService(instruments, NewMemoryRepository())).RegisterRoutes(mux)
 			base := "/api/v1/instruments/" + id.String() + "/prices"
-			before := time.Now()
+			before := time.Now().Truncate(time.Microsecond)
 			// Unknown fields remain ignored; a supplied currency cannot override the instrument.
 			body := request(t, mux, "POST", base, `{"amount":"12","currency":"EUR"}`, 201)
 			after := time.Now()
@@ -148,7 +148,7 @@ func TestHTTPQuoteCurrencyAndDefaultTime(t *testing.T) {
 				t.Fatal(err)
 			}
 			at, err := time.Parse(time.RFC3339Nano, got.ObservedAt)
-			if err != nil || at.Before(before) || at.After(after) || !strings.HasSuffix(got.ObservedAt, "Z") {
+			if err != nil || at.Before(before) || at.After(after) || at.Nanosecond()%1000 != 0 || !strings.HasSuffix(got.ObservedAt, "Z") {
 				t.Fatalf("default timestamp = %q, %v; outside [%v, %v]", got.ObservedAt, err, before, after)
 			}
 			wantAmount := "12.00"

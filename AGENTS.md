@@ -14,7 +14,10 @@ Use the Go version declared in `backend/go.mod` and Bun for frontend dependencie
 
 From `backend/`:
 
+- `go run ./cmd/db init` creates the database and applies goose migrations against the running Compose PostgreSQL service.
 - `go run ./cmd/server` starts the API on port 8080.
+- `sqlc generate` regenerates feature-owned queries (sqlc v1.31.1).
+- `go test -tags=integration ./internal/database` checks PostgreSQL repositories in a temporary database.
 - `go build ./...` compiles all packages.
 - `go test ./...` runs backend tests.
 
@@ -47,4 +50,4 @@ History uses short, lowercase subjects such as `add: account endpoints` and `doc
 
 ## Local Configuration
 
-Storage is in memory and resets on restart; PostgreSQL is not required. Set `API_PROXY_TARGET` in `frontend/.env.local` when changing the backend address; see `.env.example`.
+Storage uses PostgreSQL from `compose.yaml`. Run `docker compose up -d --wait db` from the root and `go run ./cmd/db init` from `backend/` before starting the API; see `backend/README.md` for command working directories, migrations, and `DATABASE_URL`. Memory repositories support unit tests. Set `API_PROXY_TARGET` in `frontend/.env.local` when changing the backend address; see `.env.example`.

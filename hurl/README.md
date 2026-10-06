@@ -1,6 +1,6 @@
 # Hurl endpoint tests
 
-Start the backend from `backend/`:
+Start PostgreSQL and apply migrations as described in [backend setup](../backend/README.md), then start the backend from `backend/`:
 
 ```sh
 go run ./cmd/server
@@ -12,4 +12,4 @@ With the server running, execute all scenarios from the repository root with:
 hurl --test hurl/*.hurl
 ```
 
-The scenarios target `http://localhost:8080`, matching the server's current development address. Each workflow creates its own required records and can be run independently against a running in-memory server. `prices.hurl` exercises price observation recording, history, timestamp normalization, exact amounts, and validation.
+The scenarios target `http://localhost:8080`, matching the server's current development address. Each workflow creates its own required records and can be run independently against a running PostgreSQL-backed server; created data persists across restarts. `prices.hurl` exercises price observation recording, history, timestamp normalization, exact amounts, and validation.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/mgwinsor/meridian/backend/internal/account"
 	"github.com/mgwinsor/meridian/backend/internal/cash"
+	"github.com/mgwinsor/meridian/backend/internal/database"
 	"github.com/mgwinsor/meridian/backend/internal/health"
 	"github.com/mgwinsor/meridian/backend/internal/instrument"
 	"github.com/mgwinsor/meridian/backend/internal/position"
@@ -26,24 +27,39 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	accountRepository := account.NewMemoryRepository()
+	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 10*time.Second)
+	pool, err := database.Open(connectCtx, database.URL())
+	if err == nil {
+		err = database.RequireCurrentSchema(connectCtx, pool)
+	}
+	cancelConnect()
+	if err != nil {
+		if pool != nil {
+			pool.Close()
+		}
+		logger.Error("PostgreSQL is not ready; run go run ./cmd/db init first", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	accountRepository := account.NewPostgresRepository(pool)
 	accountService := account.NewService(accountRepository)
 	accountHandler := account.NewHandler(accountService)
-	cashRepository := cash.NewMemoryRepository()
+	cashRepository := cash.NewPostgresRepository(pool)
 	cashService := cash.NewService(accountRepository, cashRepository)
 	cashHandler := cash.NewHandler(cashService)
-	propertyRepository := property.NewMemoryRepository()
+	propertyRepository := property.NewPostgresRepository(pool)
 	propertyService := property.NewService(propertyRepository)
 	propertyHandler := property.NewHandler(propertyService)
-	healthHandler := health.NewHandler()
-	instrumentRepository := instrument.NewMemoryRepository()
+	healthHandler := health.NewHandler(pool.Ping)
+	instrumentRepository := instrument.NewPostgresRepository(pool)
 	instrumentService := instrument.NewService(instrumentRepository)
 	instrumentHandler := instrument.NewHandler(instrumentService)
 
-	positionRepository := position.NewMemoryRepository()
+	positionRepository := position.NewPostgresRepository(pool)
 	positionService := position.NewService(accountRepository, instrumentRepository, positionRepository)
 	positionHandler := position.NewHandler(positionService)
-	priceRepository := price.NewMemoryRepository()
+	priceRepository := price.NewPostgresRepository(pool)
 	priceService := price.NewService(instrumentRepository, priceRepository)
 	priceHandler := price.NewHandler(priceService)
 

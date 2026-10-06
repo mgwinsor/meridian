@@ -1,14 +1,14 @@
 import { expect, test } from 'bun:test'
 import { observationTimestamp, validateQuantity } from '../src/investments'
 
-test('quantities preserve arbitrary precision and magnitude independently of money limits', () => {
-  for (const value of ['0', '000.000', ' 0012.3400\u0085', '0.000000000000000000001', '9223372036854775807999.1234567890123456789']) {
+test('quantities accept exact NUMERIC(38,18) boundaries and redundant zeroes', () => {
+  for (const value of ['0', '000.000', '00099999999999999999999.999999999999999999000', ' 0012.3400\u0085', '0.000000000000000001', '99999999999999999999.999999999999999999']) {
     expect(validateQuantity(value)).toBeUndefined()
   }
 })
 
 test('quantities reject signs, exponents, separators and malformed decimals', () => {
-  for (const value of ['', ' ', '-1', '+1', '1e3', '.5', '1.', '1,000', '1.2.3', '\ufeff1', 'NaN']) {
+  for (const value of ['', ' ', '-1', '+1', '1e3', '.5', '1.', '1,000', '1.2.3', '\ufeff1', 'NaN', '100000000000000000000', '0.0000000000000000001', '1.1234567890123456789', '99999999999999999999.9999999999999999999']) {
     expect(validateQuantity(value)).toBeDefined()
   }
 })

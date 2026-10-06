@@ -147,7 +147,7 @@ contract revision rather than guess independently:
 | Refresh external market data | Provider integrations, credentials, rate limits, synchronous versus asynchronous jobs, job polling and failure/retry states |
 
 Price observation timestamps use RFC 3339 `date-time` values, normalized to UTC
-at nanosecond precision. Do not infer a current valuation
+at microsecond precision (truncated in the backend). Do not infer a current valuation
 timestamp from when a balance was fetched. Upload/import is not a requirement of
 the current baseline; define a transport only if an import story is selected.
 
@@ -174,10 +174,11 @@ A position is a current instrument holding identified by `(account ID, instrumen
 PUT accepts `{"quantity":"12.5"}` and creates or replaces the holding with 200.
 Both references must exist. GET returns `{"positions":[]}` for an empty account,
 otherwise full holdings (`accountId`, `instrumentId`, `quantity`) ordered by instrument UUID.
-Zero remains a holding. Quantities use exact nonnegative decimal strings with no
-fixed precision or magnitude limit. Whitespace and redundant zeroes are normalized;
+Zero remains a holding. Quantities use exact nonnegative decimal strings limited
+to 20 integer and 18 fractional digits (NUMERIC(38,18)), excluding redundant zeroes.
+Values exceeding these limits are rejected without rounding. Whitespace and redundant zeroes are normalized;
 signs, exponents, and malformed decimals are rejected. Last completed save wins.
-Storage is in memory. The frontend supports setting and listing account holdings.
+Storage uses PostgreSQL. The frontend supports setting and listing account holdings.
 Position valuation, cash changes, and holding history are deferred.
 
 ## Price observations
@@ -194,9 +195,8 @@ ordered chronologically with insertion order breaking timestamp ties.
 Omitted timestamps default to the server's current time during request handling.
 Explicit null and empty timestamps are invalid.
 Supplied timestamps are parsed with Go's RFC 3339 parser. They
-require a timezone, normalize to UTC, and retain nanosecond precision (additional
-fractional digits are truncated). Responses use RFC3339Nano, omitting trailing
-fractional zeroes. Zero time and UTC years outside 0000–9999 are rejected.
+require a timezone, normalize to UTC, and are truncated to microseconds. Responses use RFC3339Nano, omitting trailing
+fractional zeroes. Values that truncate to zero time and UTC years outside 0000–9999 are rejected.
 Future and historical times are accepted. Validation order is instrument ID,
 JSON, supplied timestamp syntax, instrument existence, amount, then timestamp bounds. Errors retain the
 plain-text 400/404/500 convention.

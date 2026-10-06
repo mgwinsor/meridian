@@ -117,7 +117,7 @@ the UUID provides identity; exchange-specific deduplication is not implemented.
 The backend supports `POST /api/v1/instruments`, `GET /api/v1/instruments`, and
 `GET /api/v1/instruments/{id}`. Lists are ordered by canonical UUID and include
 an explicit empty array. IDs require lowercase hyphenated UUIDs. Storage is
-process-local and in memory, and the frontend does not yet expose this catalog.
+persisted in PostgreSQL, and the frontend exposes this catalog.
 This slice contains no account association, position, quantity, price, or value.
 
 ### 4.7 Property
@@ -210,7 +210,7 @@ The implemented HTTP behavior also includes:
 - an unexpected error while saving an account returns `500 Internal Server Error`;
 - unsupported methods on a matched account route return `405 Method Not Allowed`.
 
-Account data is currently stored only in memory. It survives requests within one server process but is lost when that process stops.
+Account data is persisted in PostgreSQL and survives server restarts.
 
 ### 5.5 Operational health
 
@@ -221,7 +221,7 @@ GET /livez
 GET /readyz
 ```
 
-Both return `200 OK` during normal operation. When graceful shutdown begins, liveness continues to return `200 OK` while readiness returns `503 Service Unavailable`, allowing traffic to drain before the HTTP server stops.
+Both return `200 OK` during normal operation. Readiness pings PostgreSQL and returns `503 Service Unavailable` while the database cannot be reached; it recovers when connectivity returns. When graceful shutdown begins, liveness continues to return `200 OK` while readiness returns `503 Service Unavailable`, allowing traffic to drain before the HTTP server stops.
 
 ## 6. Cash vertical slice
 
@@ -246,7 +246,7 @@ The PUT request accepts an exact decimal string:
 
 It creates or replaces the current balance and returns `200 OK` with the canonical amount. The GET operation returns balances ordered by currency and uses an empty JSON array when an existing account has no balances. Both operations return 404 for a missing account. Invalid account IDs, unsupported currencies, and invalid amounts return 400; unexpected repository failures return 500.
 
-Cash data, like account data, is held in memory and is lost when the server stops. Negative cash is excluded because this slice models assets; overdrafts and other liabilities remain deferred.
+Cash data, like account data, is persisted in PostgreSQL. Negative cash is excluded because this slice models assets; overdrafts and other liabilities remain deferred.
 
 ### 6.1 Property vertical slice
 
@@ -260,7 +260,7 @@ PUT  /api/v1/properties/{propertyId}/value
 
 Create accepts a trimmed, nonempty name and initial exact value and returns a generated canonical UUID. Listing returns every property ordered by canonical UUID, including an explicit empty array. Value replacement atomically changes currency and amount without changing identity or name and returns 404 for a valid missing property ID. Property IDs accept only canonical lowercase, hyphenated UUIDs.
 
-Create validates JSON, name, value object, currency, then amount. Update validates property ID, JSON, currency, amount, then property existence. Errors are plain text, writes are not retried automatically, and storage is process-local and in memory.
+Create validates JSON, name, value object, currency, then amount. Update validates property ID, JSON, currency, amount, then property existence. Errors are plain text, writes are not retried automatically, and storage is persisted in PostgreSQL.
 
 ## 7. Completed frontend integration
 
@@ -291,9 +291,9 @@ The application currently provides and tests:
 - end-to-end frontend calls through the Vite proxy to the real Go server;
 - visible connection, loading, validation, recovery, and empty states;
 - liveness and readiness behavior, including readiness changes during graceful shutdown;
-- in-memory, concurrency-safe repositories for accounts, cash, and property.
+- PostgreSQL persistence for accounts, cash, properties, instruments, positions, and prices, with goose migrations and feature-owned sqlc repositories.
 
-The frontend/backend boundary for this scope is complete. Persistence and a broader wealth domain are not.
+The frontend/backend boundary for this scope is complete. Persistence is implemented; a broader wealth domain remains deferred.
 
 ## 9. Explicitly deferred product concepts
 
@@ -313,16 +313,15 @@ The following are part of the broader product direction but are **not part of th
 - allocation explorer calculations;
 - rebalancing targets;
 - historical snapshots;
-- persistent account, cash, and property storage (the current repositories are in-memory);
 - authentication and deployment.
 
 Their presence in the long-term product vision does not imply a particular future data model.
 
 ## 10. Next product milestone
 
-Choose the next milestone as a coherent outcome spanning all needed layers. One option is a wealth overview that values positions alongside cash and property and explains missing prices or FX rates. Another is durable storage for all current records. These can be combined when the intended outcome needs both reporting and reliable retention.
+Choose the next milestone as a coherent outcome spanning all needed layers. One option is a wealth overview that values positions alongside cash and property and explains missing prices or FX rates. Durable storage for all current records is implemented.
 
-For reporting, settle valuation source and timing, reporting currency and FX behavior, missing-data treatment, aggregation without double counting, and any required classification as a group. For persistence, cover accounts, cash, properties, instruments, positions, and price observations, and define migrations and server lifecycle behavior. Keep contracts, implementation, and UI aligned.
+For reporting, settle valuation source and timing, reporting currency and FX behavior, missing-data treatment, aggregation without double counting, and any required classification as a group. Persistence covers all current records, with goose migrations and database-aware server readiness. Keep contracts, implementation, and UI aligned.
 
 Scope work by user outcome and shared invariants, not by a fixed number of endpoints or a single domain package.
 
@@ -358,11 +357,11 @@ accounts return an empty array; unknown accounts return 404.
 conversion or currency-specific precision limits. Its zero value represents zero.
 Input accepts whole and fractional digits, trims whitespace, and normalizes
 redundant zeroes. Negative values, signs, exponents, and malformed decimals fail
-validation. There is no fixed magnitude or precision limit.
+validation. Quantities fit NUMERIC(38,18): at most 20 integer and 18 fractional digits after removing redundant zeroes. Excess precision or magnitude is rejected without rounding.
 
 The feature owns its repository interface and uses narrow account and instrument
-lookup interfaces. In-memory storage is keyed by account and instrument, protected
-by a mutex, and returns detached list snapshots. Writes are idempotent and the last
+lookup interfaces. PostgreSQL storage is keyed by account and instrument and
+replaces quantities atomically. Memory repositories remain available for unit tests. Writes are idempotent and the last
 completed save wins. HTTP responses include accountId, instrumentId, and quantity.
 The frontend provides a shared searchable instrument catalog and account-scoped
 holding forms. Position valuation, transactions, and cash adjustments remain deferred.
@@ -380,14 +379,14 @@ and `GET /api/v1/instruments/{id}/prices` to view its history. Supply, for examp
 Alternatively, supply `{"amount":"123.45"}` to use the server's current time.
 The result includes `instrumentId`, the instrument's `currency`, and `observedAt`
 normalized to UTC. Amounts use the quote currency's existing nonnegative money
-rules; zero is valid. Supplied timestamps require a timezone and retain nanosecond
+rules; zero is valid. Supplied timestamps require a timezone and are truncated to microsecond
 precision. Explicit null and empty timestamps are invalid.
 
 History is ordered from earliest to latest. Equal timestamps and identical
 observations remain separate records in insertion order. Repeating POST appends
 another entry, so a retry after an uncertain response can produce a duplicate.
 Existing instruments without observations return an empty array; unknown instruments
-return 404. History is in memory and resets on restart. This slice provides the
+return 404. History is persisted in PostgreSQL across restarts. This slice provides the
 record/list workflow in both the API and frontend. The browser shows newest-first
 history, highlights the latest observation, and accepts optional local date/time
 entry converted to UTC. Automatic feeds, valuation of holdings, FX conversion,

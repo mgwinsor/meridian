@@ -72,3 +72,28 @@ func TestParseRejectsZeroCurrency(t *testing.T) {
 		t.Fatalf("money.Parse() error = %v, want ErrInvalidAmount", err)
 	}
 }
+
+func TestMinorUnitsRoundTrip(t *testing.T) {
+	for _, codeString := range []string{"USD", "SGD", "VND"} {
+		code, err := currency.Parse(codeString)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, units := range []int64{0, 1, 9223372036854775807} {
+			amount, err := money.FromMinorUnits(code, units)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := money.Parse(code, amount.String())
+			if err != nil || parsed.MinorUnits() != units || parsed.Currency() != code {
+				t.Fatalf("%s %d round trip = %v, %v", codeString, units, parsed, err)
+			}
+		}
+		if _, err := money.FromMinorUnits(code, -1); !errors.Is(err, money.ErrInvalidAmount) {
+			t.Fatalf("negative minor units error = %v", err)
+		}
+	}
+	if _, err := money.FromMinorUnits(currency.Code{}, 0); !errors.Is(err, money.ErrInvalidAmount) {
+		t.Fatalf("invalid currency error = %v", err)
+	}
+}

@@ -76,7 +76,7 @@ try {
   assert.ok((await api.listInstruments()).instruments.some((item) => item.id === instrument.id))
   assert.deepEqual((await api.listPositions(account.id)).positions, [])
   for (const [quantity, canonical] of [
-    ['0012.3400', '12.34'], ['9223372036854775807999.000000000000000001', '9223372036854775807999.000000000000000001'], ['0.000', '0'],
+    ['0012.3400', '12.34'], ['99999999999999999999.999999999999999999', '99999999999999999999.999999999999999999'], ['0.000', '0'],
   ]) {
     const expected = { accountId: account.id, instrumentId: instrument.id, quantity: canonical }
     assert.deepEqual(await api.setPosition(account.id, instrument.id, quantity), expected)
@@ -85,7 +85,7 @@ try {
   assert.deepEqual((await api.listPrices(instrument.id)).observations, [])
   const observedAt = '2026-09-14T12:00:00.123456789+08:00'
   const price = await api.recordPrice(instrument.id, '92233720368547758.07', observedAt)
-  assert.deepEqual(price, { instrumentId: instrument.id, currency: 'USD', amount: '92233720368547758.07', observedAt: '2026-09-14T04:00:00.123456789Z' })
+  assert.deepEqual(price, { instrumentId: instrument.id, currency: 'USD', amount: '92233720368547758.07', observedAt: '2026-09-14T04:00:00.123456Z' })
   assert.deepEqual(await api.recordPrice(instrument.id, price.amount, observedAt), price)
   const earlier = await api.recordPrice(instrument.id, '0', '2020-01-01T00:00:00Z')
   assert.deepEqual((await api.listPrices(instrument.id)).observations, [earlier, price, price])

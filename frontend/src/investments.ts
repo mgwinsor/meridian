@@ -1,8 +1,13 @@
 import { trimInput } from './money'
 
 export function validateQuantity(input: string): string | undefined {
-  if (!/^[0-9]+(?:\.[0-9]+)?$/.test(trimInput(input))) {
+  const value = trimInput(input)
+  if (!/^[0-9]+(?:\.[0-9]+)?$/.test(value)) {
     return 'Enter a non-negative quantity without commas, signs, or exponents. Fractional units are allowed.'
+  }
+  const [whole, fraction = ''] = value.split('.')
+  if (whole.replace(/^0+/, '').length > 20 || fraction.replace(/0+$/, '').length > 18) {
+    return 'Use at most 20 integer digits and 18 fractional digits.'
   }
 }
 

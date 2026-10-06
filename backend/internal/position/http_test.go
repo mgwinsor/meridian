@@ -69,7 +69,7 @@ func TestHTTPWorkflow(t *testing.T) {
 	if got := request("GET", "/api/v1/accounts/"+other.String()+"/positions", "", 200); got != "{\"positions\":[]}\n" {
 		t.Fatal(got)
 	}
-	for _, body := range []string{`{"quantity":"-1"}`, `{"quantity":1}`, `{"quantity":null}`, `{}`, `null`, `[]`, `{`} {
+	for _, body := range []string{`{"quantity":"100000000000000000000"}`, `{"quantity":"0.0000000000000000001"}`, `{"quantity":"-1"}`, `{"quantity":1}`, `{"quantity":null}`, `{}`, `null`, `[]`, `{`} {
 		request("PUT", base+"/"+i.String(), body, 400)
 	}
 	request("PUT", base+"/bad", `{"quantity":"1"}`, 400)

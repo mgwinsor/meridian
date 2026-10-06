@@ -18,7 +18,7 @@ HTTP 201
 jsonpath "$.instrumentId" == "{{instrument_id}}"
 jsonpath "$.currency" == "USD"
 jsonpath "$.amount" == "123.40"
-jsonpath "$.observedAt" == "2026-09-14T04:00:00.123456789Z"
+jsonpath "$.observedAt" == "2026-09-14T04:00:00.123456Z"
 
 POST http://localhost:8080/api/v1/instruments/{{instrument_id}}/prices
 Content-Type: application/json

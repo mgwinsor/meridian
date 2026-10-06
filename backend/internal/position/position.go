@@ -11,6 +11,10 @@ import (
 
 var ErrInvalidQuantity = errors.New("invalid quantity")
 
+// Quantities fit PostgreSQL NUMERIC(38,18): 20 integer and 18 fractional digits.
+const quantityIntegerDigits = 20
+const quantityFractionDigits = 18
+
 type Quantity struct{ value decimal.Decimal }
 
 func ParseQuantity(value string) (Quantity, error) {
@@ -28,6 +32,21 @@ func ParseQuantity(value string) (Quantity, error) {
 				return Quantity{}, ErrInvalidQuantity
 			}
 		}
+	}
+	whole := strings.TrimLeft(parts[0], "0")
+	fraction := ""
+	if len(parts) == 2 {
+		fraction = strings.TrimRight(parts[1], "0")
+	}
+	if len(whole) > quantityIntegerDigits || len(fraction) > quantityFractionDigits {
+		return Quantity{}, ErrInvalidQuantity
+	}
+	if whole == "" {
+		whole = "0"
+	}
+	value = whole
+	if fraction != "" {
+		value += "." + fraction
 	}
 	parsed, err := decimal.NewFromString(value)
 	if err != nil || parsed.IsNegative() {

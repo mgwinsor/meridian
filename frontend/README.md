@@ -8,9 +8,8 @@ list properties, replace manual property values, create/list/select instruments,
 set account holdings, record/list price observations, and check liveness/readiness.
 
 This completes the browser-to-backend account, cash, property, instrument,
-position, and price workflows. The next project milestone can cover complete
-storage for these workflows, a wealth overview with valuation and reporting,
-or both when they serve one product outcome.
+position, and price workflows. These workflows have PostgreSQL persistence. A next milestone can cover a wealth
+overview with valuation and reporting.
 The current UI supports manual property valuation and investment holdings;
 position valuation, FX conversion, combined net worth, and allocation remain
 outside this scope.
@@ -20,7 +19,9 @@ outside this scope.
 From the repository root, start the backend in one terminal:
 
 ```sh
+docker compose up -d --wait db
 cd backend
+go run ./cmd/db init
 go run ./cmd/server
 ```
 
@@ -42,9 +43,9 @@ To change the backend address, copy `.env.example` to `.env.local`, change
 `API_PROXY_TARGET`, and restart Vite. This variable is only used by the Vite
 server; it is not embedded in the browser bundle.
 
-The backend currently uses in-memory storage and clears all data when restarted.
-No database or Prisma setup is needed. The existing Prisma development dependency
-is not used by this frontend.
+The backend persists data in PostgreSQL across restarts; see
+[backend setup](../backend/README.md) for migrations and database configuration.
+The frontend does not manage the database or use its Prisma development dependency.
 
 ## Checks
 
@@ -60,7 +61,7 @@ It covers all 17 API operations, account discovery, empty collections, decimal
 normalization, replacement with zero, exact int64 limits, duplicate property names,
 standalone property operations, all instrument types, exact fractional holdings,
 price timestamp normalization, duplicate observations, and 400/404 errors. It creates
-test accounts, properties, instruments, holdings, and prices that stay until the backend restarts.
+test accounts, properties, instruments, holdings, and prices that persist across backend restarts.
 For a different Vite port, use:
 
 ```sh
@@ -113,14 +114,14 @@ names and symbols. Creating an instrument makes it available in account holdings
 Select an account and use **Set a holding** to choose an instrument and enter the
 total units owned. **Edit holding** loads the last fetched quantity into the form.
 Saving replaces that account/instrument quantity; it does not change cash.
-Quantities stay exact decimal strings with no currency precision or magnitude
-limit. Zero remains visible. Reloading keeps drafts; selecting another instrument
+Quantities stay exact decimal strings, limited to 20 integer and 18 fractional
+digits after removing redundant zeroes. Excess precision or magnitude is rejected. Zero remains visible. Reloading keeps drafts; selecting another instrument
 loads its last fetched quantity, and switching accounts resets the holding form.
 
 **Record a price** adds an observation in the instrument's fixed quote currency.
 Prices use the same exact money limits as cash. The optional date/time uses the
 browser's displayed local timezone and converts to UTC; blank uses server time.
-History shows the full server timestamps in UTC, newest first, including duplicate
+History shows server timestamps truncated to microseconds in UTC, newest first, including duplicate
 observations. The latest observed price is highlighted, including future observations
 if entered. Switching instruments resets price drafts and ignores late responses.
 Account switching preserves the selected instrument and its price draft.

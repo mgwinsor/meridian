@@ -1,0 +1,96 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema: internal/database/migrations
+    queries: internal/account/queries.sql
+    gen:
+      go:
+        package: postgres
+        out: internal/account/postgres
+        sql_package: pgx/v5
+        omit_unused_structs: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: uuid
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+  - engine: postgresql
+    schema: internal/database/migrations
+    queries: internal/instrument/queries.sql
+    gen:
+      go:
+        package: postgres
+        out: internal/instrument/postgres
+        sql_package: pgx/v5
+        omit_unused_structs: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: uuid
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+  - engine: postgresql
+    schema: internal/database/migrations
+    queries: internal/cash/queries.sql
+    gen:
+      go:
+        package: postgres
+        out: internal/cash/postgres
+        sql_package: pgx/v5
+        omit_unused_structs: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: uuid
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+  - engine: postgresql
+    schema: internal/database/migrations
+    queries: internal/property/queries.sql
+    gen:
+      go:
+        package: postgres
+        out: internal/property/postgres
+        sql_package: pgx/v5
+        omit_unused_structs: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: uuid
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+  - engine: postgresql
+    schema: internal/database/migrations
+    queries: internal/position/queries.sql
+    gen:
+      go:
+        package: postgres
+        out: internal/position/postgres
+        sql_package: pgx/v5
+        omit_unused_structs: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: pg_catalog.numeric
+            go_type:
+              import: github.com/shopspring/decimal
+              type: Decimal
+          - db_type: uuid
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+  - engine: postgresql
+    schema: internal/database/migrations
+    queries: internal/price/queries.sql
+    gen:
+      go:
+        package: postgres
+        out: internal/price/postgres
+        sql_package: pgx/v5
+        omit_unused_structs: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: uuid
+            go_type:
+              import: github.com/google/uuid
+              type: UUID

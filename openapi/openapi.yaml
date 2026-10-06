@@ -14,7 +14,7 @@ info:
     Every operation is public; no credentials, user identity, ownership checks,
     rate limiting, or correlation-ID headers are implemented or promised.
     Authentication must be designed before introducing multi-user access.
-    Storage is currently in-memory and is lost on process restart.
+    Storage uses PostgreSQL and survives process restarts.
 
     Account IDs returned by the server are lowercase hyphenated UUIDs. Clients
     should send this canonical representation. Names are trimmed using Go
@@ -83,7 +83,7 @@ tags:
   - name: Prices
     description: Record and list timestamped monetary observations of instruments.
   - name: Health
-    description: Process liveness and shutdown readiness.
+    description: Process liveness and database/shutdown readiness.
 paths:
   /api/v1/instruments/{id}/prices:
     parameters:
@@ -108,14 +108,14 @@ paths:
         No currency conversion or position valuation is performed.
         Repeated requests, including identical timestamps and amounts, append
         separate entries. This operation is not idempotent and returns no Location
-        header. History is held in memory and lost on restart.
+        header. History is persisted in PostgreSQL.
 
         Validation order is instrument ID, JSON, supplied timestamp syntax,
         instrument existence, amount, then timestamp bounds. Omitted observedAt
         defaults to the server's current time during request handling; explicit
         null and empty strings are invalid. Timestamps use Go's RFC 3339 parser, require
-        a timezone, and are normalized to UTC with nanosecond precision (excess
-        fractional digits are truncated). The zero time 0001-01-01T00:00:00Z and
+        a timezone, and are normalized to UTC and truncated to microseconds.
+        Values that become the zero time 0001-01-01T00:00:00Z and
         timestamps outside years 0000 through 9999 after UTC conversion are
         rejected. Historical and future instants are accepted.
       x-implementation-status: implemented
@@ -192,7 +192,7 @@ paths:
                       - instrumentId: '22222222-2222-4222-8222-222222222222'
                         currency: USD
                         amount: '123.45'
-                        observedAt: '2026-09-14T04:00:00.123456789Z'
+                        observedAt: '2026-09-14T04:00:00.123456Z'
         '400':
           description: Invalid instrument UUID syntax.
           content:
@@ -265,8 +265,9 @@ paths:
         Last completed save wins; zero is stored, not deleted.
         Validation order is account ID, instrument ID, JSON, quantity, account
         existence, then instrument existence. Input trims Go Unicode whitespace
-        and accepts digits with an optional decimal fraction, without a fixed
-        precision or magnitude limit. Signs (including -0), exponent notation,
+        and accepts digits with an optional decimal fraction, limited to 20 integer
+        digits and 18 fractional digits after removing redundant zeroes (NUMERIC(38,18)).
+        Values outside these limits are rejected rather than rounded. Signs (including -0), exponent notation,
         separators, and missing integer or fractional digits are rejected.
         Quantities are exact strings, with redundant leading integer zeroes and
         trailing fractional zeroes removed in responses. No currency precision,
@@ -283,7 +284,7 @@ paths:
               properties:
                 quantity:
                   type: string
-                  description: Nonnegative decimal; after trimming whitespace must match ^[0-9]+(\.[0-9]+)?$.
+                  description: Nonnegative decimal; at most 20 integer and 18 fractional digits after removing redundant zeroes. After trimming whitespace must match ^[0-9]+(\.[0-9]+)?$.
                   example: '12.34567890123456789'
             example: {quantity: '12.5'}
       responses:
@@ -884,9 +885,10 @@ paths:
       operationId: getReadiness
       summary: Check readiness to receive traffic
       description: |
-        Returns OK normally and 503 once shutdown starts. This checks process
-        shutdown state only, not storage or external dependencies. No Retry-After
-        header is returned; an instance entering shutdown will not recover.
+        Returns OK when PostgreSQL responds to a ping within one second and shutdown
+        has not started. Returns 503 with "database unavailable" on dependency
+        failure or "shutting down" during shutdown. No Retry-After header is
+        returned. Readiness recovers when database connectivity returns.
       x-implementation-status: implemented
       security: []
       responses:
@@ -895,7 +897,7 @@ paths:
         '405':
           $ref: '#/components/responses/ReadMethodNotAllowed'
         '503':
-          description: Graceful shutdown has begun; body has no trailing newline.
+          description: Database unavailable or graceful shutdown begun; body has no trailing newline.
           content:
             text/plain; charset=utf-8:
               schema:
@@ -965,7 +967,7 @@ components:
         observedAt:
           type: string
           format: date-time
-          description: Optional observation instant with timezone. If omitted, uses the server's current time during request handling. Explicit null, empty strings, and zero time are invalid. Stored in UTC at nanosecond precision.
+          description: Optional observation instant with timezone. If omitted, uses the server's current time during request handling. Explicit null, empty strings, and values that truncate to zero time are invalid. Stored in UTC at microsecond precision (truncated, never rounded).
     PriceObservation:
       type: object
       additionalProperties: false
@@ -1006,7 +1008,7 @@ components:
         instrumentId: '22222222-2222-4222-8222-222222222222'
         currency: USD
         amount: '123.45'
-        observedAt: '2026-09-14T04:00:00.123456789Z'
+        observedAt: '2026-09-14T04:00:00.123456Z'
     Position:
       type: object
       additionalProperties: false
@@ -1020,8 +1022,8 @@ components:
           format: uuid
         quantity:
           type: string
-          pattern: '^(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$'
-          description: Exact canonical nonnegative holding quantity, independent of currency precision.
+          pattern: '^(0|[1-9][0-9]{0,19})(\.[0-9]{0,17}[1-9])?$'
+          description: Exact canonical nonnegative holding quantity with at most 20 integer and 18 fractional digits, independent of currency precision.
       example:
         accountId: '11111111-1111-4111-8111-111111111111'
         instrumentId: '22222222-2222-4222-8222-222222222222'
@@ -1306,7 +1308,7 @@ components:
       const: OK
     ReadinessUnavailable:
       type: string
-      const: shutting down
+      enum: [shutting down, database unavailable]
   responses:
     InvalidAccountID:
       description: The path ID cannot be parsed as an account UUID.

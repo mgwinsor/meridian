@@ -16,6 +16,16 @@ type Amount struct {
 	minorUnits int64
 }
 
+// Reconstructs an exact amount from storage.
+func FromMinorUnits(code currency.Code, minorUnits int64) (Amount, error) {
+	if _, err := code.MinorUnitDigits(); err != nil || minorUnits < 0 {
+		return Amount{}, ErrInvalidAmount
+	}
+	return Amount{currency: code, minorUnits: minorUnits}, nil
+}
+
+func (a Amount) MinorUnits() int64 { return a.minorUnits }
+
 func Parse(code currency.Code, value string) (Amount, error) {
 	digits, err := code.MinorUnitDigits()
 	if err != nil {
