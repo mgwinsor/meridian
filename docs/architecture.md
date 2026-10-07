@@ -354,26 +354,14 @@ Readiness also pings PostgreSQL with a one-second timeout and returns 503 `datab
 
 ## 12. Composition root and process lifecycle
 
-`cmd/server/main.go` assembles concrete dependencies:
+`cmd/server/main.go` owns database startup, health state, and the HTTP server lifecycle. It delegates dependency assembly and route registration to `newRouter` in `cmd/server/routes.go`, in the same `main` package:
 
 ```go
-accountRepository := account.NewPostgresRepository(pool)
-accountService := account.NewService(accountRepository)
-accountHandler := account.NewHandler(accountService)
-cashRepository := cash.NewPostgresRepository(pool)
-cashService := cash.NewService(accountRepository, cashRepository)
-cashHandler := cash.NewHandler(cashService)
-propertyRepository := property.NewPostgresRepository(pool)
-propertyService := property.NewService(propertyRepository)
-propertyHandler := property.NewHandler(propertyService)
 healthHandler := health.NewHandler(pool.Ping)
-
-router := http.NewServeMux()
-healthHandler.RegisterRoutes(router)
-accountHandler.RegisterRoutes(router)
-cashHandler.RegisterRoutes(router)
-propertyHandler.RegisterRoutes(router)
+router := newRouter(pool, healthHandler)
 ```
+
+`newRouter` uses explicit constructors grouped by feature. Cash and positions share the account repository; positions and prices share the instrument repository. The supplied health handler serves readiness requests and receives `BeginShutdown` from `main`.
 
 The server opens and pings a shared pgx pool using `DATABASE_URL`, verifies goose migration versions before serving, and closes the pool after draining HTTP requests. Database setup is explicit (`go run ./cmd/db init`); the server does not apply application migrations.
 

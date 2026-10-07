@@ -11,14 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mgwinsor/meridian/backend/internal/account"
-	"github.com/mgwinsor/meridian/backend/internal/cash"
 	"github.com/mgwinsor/meridian/backend/internal/database"
 	"github.com/mgwinsor/meridian/backend/internal/health"
-	"github.com/mgwinsor/meridian/backend/internal/instrument"
-	"github.com/mgwinsor/meridian/backend/internal/position"
-	"github.com/mgwinsor/meridian/backend/internal/price"
-	"github.com/mgwinsor/meridian/backend/internal/property"
 )
 
 func main() {
@@ -42,35 +36,8 @@ func main() {
 	}
 	defer pool.Close()
 
-	accountRepository := account.NewPostgresRepository(pool)
-	accountService := account.NewService(accountRepository)
-	accountHandler := account.NewHandler(accountService)
-	cashRepository := cash.NewPostgresRepository(pool)
-	cashService := cash.NewService(accountRepository, cashRepository)
-	cashHandler := cash.NewHandler(cashService)
-	propertyRepository := property.NewPostgresRepository(pool)
-	propertyService := property.NewService(propertyRepository)
-	propertyHandler := property.NewHandler(propertyService)
 	healthHandler := health.NewHandler(pool.Ping)
-	instrumentRepository := instrument.NewPostgresRepository(pool)
-	instrumentService := instrument.NewService(instrumentRepository)
-	instrumentHandler := instrument.NewHandler(instrumentService)
-
-	positionRepository := position.NewPostgresRepository(pool)
-	positionService := position.NewService(accountRepository, instrumentRepository, positionRepository)
-	positionHandler := position.NewHandler(positionService)
-	priceRepository := price.NewPostgresRepository(pool)
-	priceService := price.NewService(instrumentRepository, priceRepository)
-	priceHandler := price.NewHandler(priceService)
-
-	router := http.NewServeMux()
-	healthHandler.RegisterRoutes(router)
-	accountHandler.RegisterRoutes(router)
-	cashHandler.RegisterRoutes(router)
-	propertyHandler.RegisterRoutes(router)
-	instrumentHandler.RegisterRoutes(router)
-	positionHandler.RegisterRoutes(router)
-	priceHandler.RegisterRoutes(router)
+	router := newRouter(pool, healthHandler)
 
 	httpServer := &http.Server{
 		Addr:    ":" + strconv.Itoa(port),
