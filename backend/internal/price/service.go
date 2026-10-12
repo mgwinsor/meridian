@@ -14,6 +14,7 @@ type InstrumentFinder interface {
 }
 
 type Repository interface {
+	Latest(context.Context, []instrument.ID, time.Time) ([]Observation, error)
 	Save(ctx context.Context, observation Observation) error
 	ListByInstrument(ctx context.Context, instrumentID instrument.ID) ([]Observation, error)
 }

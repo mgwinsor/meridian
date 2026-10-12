@@ -92,9 +92,15 @@ func migratedDatabase(t *testing.T) string {
 	if _, err := provider.DownTo(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
-	var tableExists bool
-	if err := db.QueryRowContext(ctx, "SELECT to_regclass('accounts') IS NOT NULL").Scan(&tableExists); err != nil || tableExists {
-		t.Fatalf("down left accounts table: %v, %v", tableExists, err)
+	for _, table := range []string{
+		"accounts", "instruments", "cash_balances", "properties",
+		"positions", "price_observations", "fx_observations",
+	} {
+		var exists bool
+		err := db.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists)
+		if err != nil || exists {
+			t.Fatalf("down left %s table: %v, %v", table, exists, err)
+		}
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatal(err)

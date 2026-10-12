@@ -24,11 +24,14 @@ package "internal" {
         component "instrument" as Instrument
         component "position" as Position
         component "price" as Price
+        component "fx" as FX
+        component "overview" as Overview
     }
 
     together {
         component "money" as Money
         component "currency" as Currency
+        component "assetclass" as AssetClass
     }
 
     together {
@@ -46,6 +49,8 @@ Server ..> Property
 Server ..> Instrument
 Server ..> Position
 Server ..> Price
+Server ..> FX
+Server ..> Overview
 Server ..> Health
 Server ..> Database
 
@@ -61,12 +66,23 @@ Property --> Money
 Property --> Currency
 
 Instrument --> Currency
+Instrument --> AssetClass
 
 Position --> Account
 Position --> Instrument
 
 Price --> Instrument
 Price --> Money
+
+FX --> Currency
+Overview --> Account
+Overview --> Cash
+Overview --> Property
+Overview --> Instrument
+Overview --> Position
+Overview --> Price
+Overview --> FX
+Overview --> AssetClass
 
 Money --> Currency
 
@@ -78,6 +94,12 @@ Property -[#78909C]-> Postgres
 Instrument -[#78909C]-> Postgres
 Position -[#78909C]-> Postgres
 Price -[#78909C]-> Postgres
+FX -[#78909C]-> Postgres
+Overview -[#78909C]-> Postgres : read-only transaction
+note right of Overview
+  Input reader coordinates feature repositories.
+  No overview-owned source queries or persistence.
+end note
 
 legend bottom left
     Dotted arrows: composition root wiring

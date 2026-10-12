@@ -32,7 +32,7 @@ The allocation explorer remains the central product idea. The same underlying we
 
 Use the established account, cash, property, instrument, position, and price model as the foundation for larger product milestones. Plan related domain concepts together when they support a coherent user outcome. Define their shared invariants before implementation, without designing unrelated future concepts in advance.
 
-The implemented application currently models custody accounts, current cash balances, directly owned properties, instrument metadata, account-held positions, and price observations. All are wired end to end: the React frontend uses the Go HTTP API to manage accounts, cash, and holdings and, independently, properties and a shared instrument catalog with price history. Concepts such as countries, portfolio groupings, aggregate reporting, FX, and rebalancing rules remain deferred until a planned milestone requires them.
+The implemented application currently models custody accounts, current cash balances, directly owned properties, instrument metadata, account-held positions, and price observations. All are wired end to end: the React frontend uses the Go HTTP API to manage accounts, cash, and holdings and, independently, properties and a shared instrument catalog with price history. The live overview adds aggregate reporting, investment classification, and manual FX. Countries, portfolio groupings, and rebalancing rules remain deferred.
 
 ### 3.2 Avoid premature classifications
 
@@ -126,7 +126,7 @@ A property is a standalone physical-asset aggregate, not a member of an account.
 
 The value is the estimated gross market value of the user's owned share before mortgages or other liabilities. Revaluation replaces currency and amount together; changing currency is a new estimate, not an FX conversion. Zero remains an explicit value.
 
-Accounts contain cash and provide custody for account-held positions. A future read-side Asset projection may combine properties, cash, and positions for reporting. This revision does not define an `Asset` interface, generic asset persistence, aggregation, or FX behavior.
+Accounts contain cash and provide custody for account-held positions. The live overview composes properties, cash, and positions through their feature repositories, without an `Asset` interface or generic asset persistence.
 
 ## 5. Account vertical slice
 
@@ -273,11 +273,11 @@ The frontend and backend are fully connected for the implemented account, cash, 
 5. reload balances and observe the backend's canonical amount representation.
 6. create, list, reload, and revalue properties without creating or selecting an account.
 
-The browser client uses the shared HTTP contract for all ten implemented operations: three account operations, two cash operations, three property operations, and two health operations. Vite proxies `/api`, `/livez`, and `/readyz` to the Go server during local development and preview. A deployed frontend likewise requires an origin or reverse proxy that sends those paths to the backend.
+The browser client uses the shared HTTP contract for all 21 implemented operations across accounts, cash, properties, instruments, holdings, prices, FX, overview, and health. Vite proxies `/api`, `/livez`, and `/readyz` to the Go server during local development and preview. A deployed frontend likewise requires an origin or reverse proxy that sends those paths to the backend.
 
 The interface handles loading, empty, unavailable-backend, missing-account, validation, and server-error states. It retains user input after failed writes, avoids automatic write retries, and prevents late responses for a previously selected account from replacing the current view. Monetary values remain decimal strings throughout the browser and API; the client validates the same currency precision and signed-`int64` bounds as the backend.
 
-Accounts and Properties are sibling workspace regions. Account selection affects only account details and cash; property data and in-progress drafts remain mounted and intact when selection changes. The current UI does not calculate a combined balance, net worth, FX conversion, or allocation because the read-side projection does not yet exist.
+Accounts and Properties are sibling workspace regions. Account selection affects only account details and cash; property data and in-progress drafts remain mounted and intact when selection changes. The workspace overview values cash, holdings, and property in USD, SGD, or VND, with class and currency breakdowns. Liabilities are excluded, so this is total assets rather than net worth.
 
 ## 8. Current delivered baseline
 
@@ -305,10 +305,8 @@ The following are part of the broader product direction but are **not part of th
 - retirement/non-retirement classification;
 - account-level display or base currency;
 - country sentinel types;
-- external price feeds and FX rates;
-- a cross-asset classification system;
+- automated price and FX feeds;
 - liabilities;
-- an Asset reporting projection, aggregate totals, and FX conversion;
 - portfolio groups or sleeves;
 - allocation explorer calculations;
 - rebalancing targets;
@@ -319,9 +317,9 @@ Their presence in the long-term product vision does not imply a particular futur
 
 ## 10. Next product milestone
 
-Choose the next milestone as a coherent outcome spanning all needed layers. One option is a wealth overview that values positions alongside cash and property and explains missing prices or FX rates. Durable storage for all current records is implemented.
+The live total-assets overview is implemented. Historical saved reports are the follow-up milestone; their persistence should belong to the feature that owns saved reports.
 
-For reporting, settle valuation source and timing, reporting currency and FX behavior, missing-data treatment, aggregation without double counting, and any required classification as a group. Persistence covers all current records, with goose migrations and database-aware server readiness. Keep contracts, implementation, and UI aligned.
+Saved reports should reuse the live valuation path and define snapshot cadence and revision policy before implementation. Current balances, properties, and holdings do not support historical reconstruction.
 
 Scope work by user outcome and shared invariants, not by a fixed number of endpoints or a single domain package.
 
@@ -364,7 +362,7 @@ lookup interfaces. PostgreSQL storage is keyed by account and instrument and
 replaces quantities atomically. Memory repositories remain available for unit tests. Writes are idempotent and the last
 completed save wins. HTTP responses include accountId, instrumentId, and quantity.
 The frontend provides a shared searchable instrument catalog and account-scoped
-holding forms. Position valuation, transactions, and cash adjustments remain deferred.
+holding forms. The overview values positions; transactions and cash adjustments remain deferred.
 
 ## Price observations
 
@@ -389,5 +387,48 @@ Existing instruments without observations return an empty array; unknown instrum
 return 404. History is persisted in PostgreSQL across restarts. This slice provides the
 record/list workflow in both the API and frontend. The browser shows newest-first
 history, highlights the latest observation, and accepts optional local date/time
-entry converted to UTC. Automatic feeds, valuation of holdings, FX conversion,
-and aggregate reporting remain deferred.
+entry converted to UTC. The overview selects prices for valuation; automatic feeds remain deferred.
+
+## Live total-assets overview
+
+Implemented: `GET /api/v1/overview?currency=USD`, selectable USD/SGD/VND, defaults to USD.
+The report combines every current cash balance, property value, and account/instrument
+holding once. Holdings use exact quantity × selected price. One generated timestamp
+bounds price and FX selection; latest observed time wins, with last insertion breaking
+ties. Older observations remain usable without expiry. Future observations stay in
+history until eligible. A report is a consistent database snapshot, not a historical
+reconstruction or saved report.
+
+Cash and property have fixed classes. Instruments have one editable investment class:
+`equities`, `bonds`, `crypto`, `mixed`, or `unclassified`. Stocks default to equities,
+bonds to bonds, crypto to crypto, and funds to unclassified. Creation accepts optional
+`assetClass`; `PUT /api/v1/instruments/{id}/asset-class` changes only that field.
+Fund splitting is deferred.
+
+Manual FX history uses `POST`/`GET /api/v1/fx-rates/{currency}` for SGD and VND.
+A rate is quote-currency units per USD; USD implicitly equals 1. Positive rates fit
+NUMERIC(38,18), independent of money precision. Optional observation times follow
+price timestamp rules. Writes append, including duplicate times and values; they are
+never automatically retried.
+
+Conversion is native value × target USD rate ÷ source USD rate. Same-currency and
+known-zero values need no rate; zero holdings need no price. Each converted asset
+rounds once, half-up, to reporting precision, then rounded values are summed.
+Totals may exceed int64 and remain decimal strings. Missing inputs exclude that
+asset and label the result **Valued subtotal**. Rows expose native values when known,
+selected prices, missing inputs, and converted values when available. Database errors
+fail the report instead of silently excluding data.
+
+Both breakdowns reconcile to the valued subtotal. Percentages use that subtotal,
+round to two decimals, and are omitted at zero. Excluded-asset counts explain partial
+breakdowns. Currency distribution groups cash/property denomination and investment
+quote currency; it makes no geographic-exposure claim. Only FX observations used in
+successful conversions are shown. Empty arrays and deterministic ordering are explicit.
+
+The overview refreshes after successful writes and supports manual reload. Currency
+switching immediately clears prior-currency data and ignores late responses. Failed
+writes preserve inputs. Historical snapshots, liabilities, automated feeds, geographic
+attribution, and historical reconstruction remain outside this milestone.
+
+Acceptance fixture: USD cash 100, SGD cash 100, VND property 20,000, two equity units
+at SGD 10, and rates SGD 2/VND 20,000 per USD yield USD 161, SGD 322, VND 3,220,000.

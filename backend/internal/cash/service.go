@@ -13,6 +13,7 @@ type AccountFinder interface {
 }
 
 type Repository interface {
+	List(context.Context) ([]Balance, error)
 	Save(ctx context.Context, balance Balance) error
 	ListByAccount(ctx context.Context, accountID account.ID) ([]Balance, error)
 }

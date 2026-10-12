@@ -11,6 +11,30 @@ import (
 	"github.com/google/uuid"
 )
 
+const list = `-- name: List :many
+SELECT account_id, currency, minor_units FROM cash_balances ORDER BY account_id, currency
+`
+
+func (q *Queries) List(ctx context.Context) ([]CashBalance, error) {
+	rows, err := q.db.Query(ctx, list)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CashBalance{}
+	for rows.Next() {
+		var i CashBalance
+		if err := rows.Scan(&i.AccountID, &i.Currency, &i.MinorUnits); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listByAccount = `-- name: ListByAccount :many
 SELECT account_id, currency, minor_units FROM cash_balances WHERE account_id = $1 ORDER BY currency
 `

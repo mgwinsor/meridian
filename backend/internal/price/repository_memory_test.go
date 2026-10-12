@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mgwinsor/meridian/backend/internal/currency"
 	"github.com/mgwinsor/meridian/backend/internal/instrument"
+	"github.com/mgwinsor/meridian/backend/internal/money"
 )
 
 func TestMemoryRepositoryConcurrentAccess(t *testing.T) {
@@ -45,5 +47,31 @@ func TestMemoryRepositoryConcurrentAccess(t *testing.T) {
 		if got != observation {
 			t.Fatal("snapshot mutation leaked into storage")
 		}
+	}
+}
+
+func TestLatestCutoffAndTies(t *testing.T) {
+	repo := NewMemoryRepository()
+	ctx := context.Background()
+	id := instrument.NewID()
+	code, _ := currency.Parse("USD")
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, item := range []struct {
+		value string
+		at    time.Time
+	}{{"2", at}, {"9", at.Add(time.Hour)}, {"1", at.Add(-time.Hour)}, {"3", at}} {
+		amount, _ := money.Parse(code, item.value)
+		observation, _ := New(id, amount, item.at)
+		if err := repo.Save(ctx, observation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := repo.Latest(ctx, []instrument.ID{id, instrument.NewID()}, at)
+	if err != nil || len(rows) != 1 || rows[0].Amount.String() != "3.00" {
+		t.Fatalf("%+v %v", rows, err)
+	}
+	rows, err = repo.Latest(ctx, []instrument.ID{id}, at.Add(-2*time.Hour))
+	if err != nil || rows == nil || len(rows) != 0 {
+		t.Fatalf("%+v %v", rows, err)
 	}
 }

@@ -4,11 +4,12 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/mgwinsor/meridian/backend/internal/account"
 	"github.com/mgwinsor/meridian/backend/internal/cash"
+	"github.com/mgwinsor/meridian/backend/internal/fx"
 	"github.com/mgwinsor/meridian/backend/internal/health"
 	"github.com/mgwinsor/meridian/backend/internal/instrument"
+	"github.com/mgwinsor/meridian/backend/internal/overview"
 	"github.com/mgwinsor/meridian/backend/internal/position"
 	"github.com/mgwinsor/meridian/backend/internal/price"
 	"github.com/mgwinsor/meridian/backend/internal/property"
@@ -47,6 +48,16 @@ func newRouter(pool *pgxpool.Pool, healthHandler *health.Handler) http.Handler {
 	priceService := price.NewService(instrumentRepository, priceRepository)
 	priceHandler := price.NewHandler(priceService)
 	priceHandler.RegisterRoutes(router)
+
+	fxRepository := fx.NewPostgresRepository(pool)
+	fxService := fx.NewService(fxRepository)
+	fxHandler := fx.NewHandler(fxService)
+	fxHandler.RegisterRoutes(router)
+
+	overviewRepository := overview.NewPostgresReader(pool)
+	overviewService := overview.NewService(overviewRepository)
+	overviewHandler := overview.NewHandler(overviewService)
+	overviewHandler.RegisterRoutes(router)
 
 	return router
 }

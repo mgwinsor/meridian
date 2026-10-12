@@ -4,3 +4,6 @@ ON CONFLICT (account_id, instrument_id) DO UPDATE SET quantity = EXCLUDED.quanti
 
 -- name: ListByAccount :many
 SELECT * FROM positions WHERE account_id = $1 ORDER BY instrument_id;
+
+-- name: List :many
+SELECT * FROM positions ORDER BY account_id, instrument_id;

@@ -132,3 +132,40 @@ func newBalance(t *testing.T, accountID account.ID, codeValue, amountValue strin
 
 	return cash.Balance{AccountID: accountID, Amount: amount}
 }
+
+func TestWorkspaceList(t *testing.T) {
+	repo := cash.NewMemoryRepository()
+	ctx := context.Background()
+	rows, err := repo.List(ctx)
+	if err != nil || rows == nil || len(rows) != 0 {
+		t.Fatalf("empty: %v %v", rows, err)
+	}
+	usd, _ := currency.Parse("USD")
+	value, _ := money.Parse(usd, "100")
+	first, second := account.NewID(), account.NewID()
+	for _, id := range []account.ID{first, second} {
+		if err := repo.Save(ctx, cash.Balance{AccountID: id, Amount: value}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	zero, _ := money.Parse(usd, "0")
+	if err := repo.Save(ctx, cash.Balance{AccountID: first, Amount: zero}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = repo.List(ctx)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("workspace: %v %v", rows, err)
+	}
+	values := map[account.ID]string{}
+	for _, row := range rows {
+		values[row.AccountID] = row.Amount.String()
+	}
+	if values[first] != "0.00" || values[second] != "100.00" {
+		t.Fatal(values)
+	}
+	rows[0].Amount = value
+	scoped, _ := repo.ListByAccount(ctx, first)
+	if scoped[0].Amount.String() != "0.00" {
+		t.Fatal("list leaked storage")
+	}
+}

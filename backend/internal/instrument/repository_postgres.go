@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/mgwinsor/meridian/backend/internal/assetclass"
 	"github.com/mgwinsor/meridian/backend/internal/currency"
 	"github.com/mgwinsor/meridian/backend/internal/instrument/postgres"
 )
@@ -14,14 +14,14 @@ type PostgresRepository struct{ queries *postgres.Queries }
 
 var _ Repository = (*PostgresRepository)(nil)
 
-func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
-	return &PostgresRepository{queries: postgres.New(pool)}
+func NewPostgresRepository(db postgres.DBTX) *PostgresRepository {
+	return &PostgresRepository{queries: postgres.New(db)}
 }
 
 func (r *PostgresRepository) Save(ctx context.Context, instrument Instrument) error {
 	return r.queries.Save(ctx, postgres.SaveParams{
 		ID: instrument.ID.value, Kind: string(instrument.Kind), Symbol: instrument.Symbol,
-		Name: instrument.Name, QuoteCurrency: instrument.QuoteCurrency.String(),
+		AssetClass: string(instrument.AssetClass), Name: instrument.Name, QuoteCurrency: instrument.QuoteCurrency.String(),
 	})
 }
 
@@ -57,5 +57,21 @@ func instrumentFromRow(row postgres.Instrument) (Instrument, error) {
 	if err != nil {
 		return Instrument{}, err
 	}
-	return New(ID{value: row.ID}, Kind(row.Kind), row.Symbol, row.Name, code)
+	item, err := New(ID{value: row.ID}, Kind(row.Kind), row.Symbol, row.Name, code)
+	if err != nil {
+		return Instrument{}, err
+	}
+	item.AssetClass, err = assetclass.ParseInvestment(row.AssetClass)
+	return item, err
+}
+
+func (r *PostgresRepository) ReplaceAssetClass(ctx context.Context, id ID, class assetclass.Class) (Instrument, error) {
+	row, err := r.queries.ReplaceAssetClass(ctx, postgres.ReplaceAssetClassParams{ID: id.value, AssetClass: string(class)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Instrument{}, ErrNotFound
+	}
+	if err != nil {
+		return Instrument{}, err
+	}
+	return instrumentFromRow(row)
 }

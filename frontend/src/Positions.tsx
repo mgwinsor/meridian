@@ -93,7 +93,7 @@ export function Positions({ accountId, catalog }: { accountId: string; catalog: 
           <button>{saving ? 'Saving…' : 'Save holding'}</button>
         </fieldset>
         {selected && <p className="muted">Last loaded quantity: {current?.quantity ?? 'No holding yet'} · Quote currency: {selected.quoteCurrency}</p>}
-        <p id="holding-help" className="muted">Fractional units are allowed at any decimal precision. Enter quantities without commas.</p>
+        <p id="holding-help" className="muted">Use up to 20 integer digits and 18 fractional digits. Enter quantities without commas.</p>
         {error && <p id="holding-error" role="alert" className="error">{error}</p>}
         {notice && <p role="status" className="success">{notice}</p>}
       </form>}

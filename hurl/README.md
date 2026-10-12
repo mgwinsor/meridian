@@ -13,3 +13,8 @@ hurl --test hurl/*.hurl
 ```
 
 The scenarios target `http://localhost:8080`, matching the server's current development address. Each workflow creates its own required records and can be run independently against a running PostgreSQL-backed server; created data persists across restarts. `prices.hurl` exercises price observation recording, history, timestamp normalization, exact amounts, and validation.
+
+`overview.hurl` checks classification, FX precision/history, currency selection, and
+an incomplete report becoming valued after a price write. Existing workspace data
+may affect totals; the exact USD 161 / SGD 322 / VND 3,220,000 fixture is checked in
+isolated backend unit and PostgreSQL integration tests.

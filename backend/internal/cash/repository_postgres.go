@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mgwinsor/meridian/backend/internal/account"
 	"github.com/mgwinsor/meridian/backend/internal/cash/postgres"
 	"github.com/mgwinsor/meridian/backend/internal/currency"
@@ -15,8 +14,8 @@ type PostgresRepository struct{ queries *postgres.Queries }
 
 var _ Repository = (*PostgresRepository)(nil)
 
-func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
-	return &PostgresRepository{queries: postgres.New(pool)}
+func NewPostgresRepository(db postgres.DBTX) *PostgresRepository {
+	return &PostgresRepository{queries: postgres.New(db)}
 }
 
 func (r *PostgresRepository) Save(ctx context.Context, balance Balance) error {
@@ -31,8 +30,16 @@ func (r *PostgresRepository) ListByAccount(ctx context.Context, accountID accoun
 	if err != nil {
 		return nil, err
 	}
+	return fromRows(rows)
+}
+
+func fromRows(rows []postgres.CashBalance) ([]Balance, error) {
 	balances := make([]Balance, 0, len(rows))
 	for _, row := range rows {
+		accountID, err := account.ParseID(row.AccountID.String())
+		if err != nil {
+			return nil, err
+		}
 		code, err := currency.Parse(row.Currency)
 		if err != nil {
 			return nil, err
@@ -44,4 +51,12 @@ func (r *PostgresRepository) ListByAccount(ctx context.Context, accountID accoun
 		balances = append(balances, Balance{AccountID: accountID, Amount: amount})
 	}
 	return balances, nil
+}
+
+func (r *PostgresRepository) List(ctx context.Context) ([]Balance, error) {
+	rows, err := r.queries.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromRows(rows)
 }

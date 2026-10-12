@@ -3,6 +3,8 @@ package instrument
 import (
 	"context"
 	"sync"
+
+	"github.com/mgwinsor/meridian/backend/internal/assetclass"
 )
 
 type MemoryRepository struct {
@@ -41,4 +43,16 @@ func (r *MemoryRepository) List(_ context.Context) ([]Instrument, error) {
 		instruments = append(instruments, instrument)
 	}
 	return instruments, nil
+}
+
+func (r *MemoryRepository) ReplaceAssetClass(_ context.Context, id ID, class assetclass.Class) (Instrument, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.instruments[id]
+	if !ok {
+		return Instrument{}, ErrNotFound
+	}
+	item.AssetClass = class
+	r.instruments[id] = item
+	return item, nil
 }

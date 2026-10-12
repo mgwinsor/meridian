@@ -2,10 +2,10 @@ package price
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mgwinsor/meridian/backend/internal/currency"
 	"github.com/mgwinsor/meridian/backend/internal/instrument"
 	"github.com/mgwinsor/meridian/backend/internal/money"
@@ -16,8 +16,8 @@ type PostgresRepository struct{ queries *postgres.Queries }
 
 var _ Repository = (*PostgresRepository)(nil)
 
-func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
-	return &PostgresRepository{queries: postgres.New(pool)}
+func NewPostgresRepository(db postgres.DBTX) *PostgresRepository {
+	return &PostgresRepository{queries: postgres.New(db)}
 }
 
 func (r *PostgresRepository) Save(ctx context.Context, observation Observation) error {
@@ -33,8 +33,16 @@ func (r *PostgresRepository) ListByInstrument(ctx context.Context, instrumentID 
 	if err != nil {
 		return nil, err
 	}
+	return fromRows(rows)
+}
+
+func fromRows(rows []postgres.PriceObservation) ([]Observation, error) {
 	observations := make([]Observation, 0, len(rows))
 	for _, row := range rows {
+		instrumentID, err := instrument.ParseID(row.InstrumentID.String())
+		if err != nil {
+			return nil, err
+		}
 		code, err := currency.Parse(row.Currency)
 		if err != nil {
 			return nil, err
@@ -50,4 +58,16 @@ func (r *PostgresRepository) ListByInstrument(ctx context.Context, instrumentID 
 		observations = append(observations, observation)
 	}
 	return observations, nil
+}
+
+func (r *PostgresRepository) Latest(ctx context.Context, ids []instrument.ID, cutoff time.Time) ([]Observation, error) {
+	values := make([]uuid.UUID, len(ids))
+	for i, id := range ids {
+		values[i] = uuid.MustParse(id.String())
+	}
+	rows, err := r.queries.Latest(ctx, postgres.LatestParams{Column1: values, ObservedAt: pgtype.Timestamptz{Time: cutoff, Valid: true}})
+	if err != nil {
+		return nil, err
+	}
+	return fromRows(rows)
 }

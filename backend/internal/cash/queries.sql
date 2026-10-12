@@ -4,3 +4,6 @@ ON CONFLICT (account_id, currency) DO UPDATE SET minor_units = EXCLUDED.minor_un
 
 -- name: ListByAccount :many
 SELECT * FROM cash_balances WHERE account_id = $1 ORDER BY currency;
+
+-- name: List :many
+SELECT * FROM cash_balances ORDER BY account_id, currency;

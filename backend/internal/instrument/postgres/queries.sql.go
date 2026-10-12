@@ -12,7 +12,7 @@ import (
 )
 
 const findByID = `-- name: FindByID :one
-SELECT id, kind, symbol, name, quote_currency FROM instruments WHERE id = $1
+SELECT id, kind, symbol, name, quote_currency, asset_class FROM instruments WHERE id = $1
 `
 
 func (q *Queries) FindByID(ctx context.Context, id uuid.UUID) (Instrument, error) {
@@ -24,12 +24,13 @@ func (q *Queries) FindByID(ctx context.Context, id uuid.UUID) (Instrument, error
 		&i.Symbol,
 		&i.Name,
 		&i.QuoteCurrency,
+		&i.AssetClass,
 	)
 	return i, err
 }
 
 const list = `-- name: List :many
-SELECT id, kind, symbol, name, quote_currency FROM instruments ORDER BY id
+SELECT id, kind, symbol, name, quote_currency, asset_class FROM instruments ORDER BY id
 `
 
 func (q *Queries) List(ctx context.Context) ([]Instrument, error) {
@@ -47,6 +48,7 @@ func (q *Queries) List(ctx context.Context) ([]Instrument, error) {
 			&i.Symbol,
 			&i.Name,
 			&i.QuoteCurrency,
+			&i.AssetClass,
 		); err != nil {
 			return nil, err
 		}
@@ -58,10 +60,33 @@ func (q *Queries) List(ctx context.Context) ([]Instrument, error) {
 	return items, nil
 }
 
+const replaceAssetClass = `-- name: ReplaceAssetClass :one
+UPDATE instruments SET asset_class = $2 WHERE id = $1 RETURNING id, kind, symbol, name, quote_currency, asset_class
+`
+
+type ReplaceAssetClassParams struct {
+	ID         uuid.UUID
+	AssetClass string
+}
+
+func (q *Queries) ReplaceAssetClass(ctx context.Context, arg ReplaceAssetClassParams) (Instrument, error) {
+	row := q.db.QueryRow(ctx, replaceAssetClass, arg.ID, arg.AssetClass)
+	var i Instrument
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Symbol,
+		&i.Name,
+		&i.QuoteCurrency,
+		&i.AssetClass,
+	)
+	return i, err
+}
+
 const save = `-- name: Save :exec
-INSERT INTO instruments (id, kind, symbol, name, quote_currency) VALUES ($1, $2, $3, $4, $5)
+INSERT INTO instruments (id, kind, symbol, name, quote_currency, asset_class) VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (id) DO UPDATE SET kind = EXCLUDED.kind, symbol = EXCLUDED.symbol,
-    name = EXCLUDED.name, quote_currency = EXCLUDED.quote_currency
+    name = EXCLUDED.name, quote_currency = EXCLUDED.quote_currency, asset_class = EXCLUDED.asset_class
 `
 
 type SaveParams struct {
@@ -70,6 +95,7 @@ type SaveParams struct {
 	Symbol        string
 	Name          string
 	QuoteCurrency string
+	AssetClass    string
 }
 
 func (q *Queries) Save(ctx context.Context, arg SaveParams) error {
@@ -79,6 +105,7 @@ func (q *Queries) Save(ctx context.Context, arg SaveParams) error {
 		arg.Symbol,
 		arg.Name,
 		arg.QuoteCurrency,
+		arg.AssetClass,
 	)
 	return err
 }

@@ -7,12 +7,10 @@ read account details, view and replace cash balances in SGD/USD/VND, create and
 list properties, replace manual property values, create/list/select instruments,
 set account holdings, record/list price observations, and check liveness/readiness.
 
-This completes the browser-to-backend account, cash, property, instrument,
-position, and price workflows. These workflows have PostgreSQL persistence. A next milestone can cover a wealth
-overview with valuation and reporting.
-The current UI supports manual property valuation and investment holdings;
-position valuation, FX conversion, combined net worth, and allocation remain
-outside this scope.
+The live overview values all current assets in selectable USD, SGD, or VND. It shows
+class and currency breakdowns, missing-input exclusions, selected prices and FX rates.
+Manual FX history and instrument class editing are available alongside existing forms.
+All source data persists in PostgreSQL. Historical reports and liabilities are deferred.
 
 ## Run locally
 
@@ -63,7 +61,7 @@ bun run test:integration # Requires both Go and Vite to be running
 ```
 
 The integration check runs the same API client as React through the Vite proxy.
-It covers all 17 API operations, account discovery, empty collections, decimal
+It covers all 21 API operations, account discovery, empty collections, decimal
 normalization, replacement with zero, exact int64 limits, duplicate property names,
 standalone property operations, all instrument types, exact fractional holdings,
 price timestamp normalization, duplicate observations, and 400/404 errors. It creates
@@ -81,7 +79,7 @@ For a deployed static build, configure the host/reverse proxy to route `/api`,
 ## Client behavior
 
 - Money stays in decimal strings, with currency-specific precision and exact
-  upper-bound validation. There is no floating-point conversion or FX total.
+  upper-bound validation. Computed totals and FX rates also remain exact strings, without floating-point conversion.
 - Loading, empty, missing-account, connection, and server-error states are shown.
   Reload failures retain the last loaded data with an error message.
 - Account IDs distinguish duplicate names. Selecting a different account resets
@@ -136,4 +134,19 @@ Loading, empty, failed-load, and failed-save states have recovery guidance.
 Reload failures retain the last fetched data; failed writes retain drafts and are
 never automatically retried. Uncertain price saves advise checking history before
 resubmitting because each POST adds another observation. Prices and holdings are
-independent: the UI does not calculate position values or portfolio totals.
+independent writes; the overview combines them for current valuation.
+
+## Overview and manual FX
+
+Choose **Reporting currency** or **Reload overview** to load a live report. Successful
+writes refresh it. A currency change discards the previous report immediately; late
+responses cannot appear under the new currency. Missing prices/rates show an incomplete
+**Valued subtotal**, excluded counts, and per-asset missing inputs. Currency distribution
+means denominations/quote currencies, not geographic exposure. Percentages are omitted
+for a zero subtotal. Details retain exact decimal strings, even beyond stored-money limits.
+
+FX entry records SGD/VND units per USD, with up to 18 fractional digits for either
+currency. USD is implicitly 1. History includes future observations, but reports only
+use observations at or before generation time; observations never automatically expire.
+Instrument classes default by kind and can be changed in instrument details. Failed
+writes keep inputs and show recovery guidance; no automatic write retries occur.

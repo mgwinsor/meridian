@@ -1,7 +1,7 @@
 # Meridian backend
 
-The server stores accounts, cash, properties, instruments, positions, and price
-observations in PostgreSQL using pgx. Each feature owns its repository and sqlc
+The server stores accounts, cash, properties, instruments, positions, price
+observations, and FX observations in PostgreSQL using pgx. Each feature owns its repository and sqlc
 queries; memory repositories remain available for unit tests.
 
 ## Run locally
@@ -48,9 +48,9 @@ go run ./cmd/db down     # Roll back ONE migration; the initial rollback deletes
 ```
 
 Goose is pinned in `go.mod`; the command embeds SQL from
-`internal/database/migrations/`. The single `00001_initial.sql` migration creates
-the complete current schema on a clean database, with `-- +goose Up` and
-`-- +goose Down` sections. The SQL migration runs transactionally and uses
+`internal/database/migrations/`. During pre-production, `00001_initial.sql` owns
+the complete schema, including instrument classification and FX observations.
+Its `-- +goose Up` and `-- +goose Down` sections run transactionally and use
 a PostgreSQL advisory lock to serialize migration runners. Database creation is a
 separate, idempotent, nontransactional goose migration. Server startup does not
 apply application migrations.
@@ -88,7 +88,7 @@ Integration tests require the running development PostgreSQL service. They use
 `TEST_DATABASE_URL` (falling back to `DATABASE_URL` and then the local default) for
 connection credentials, create a uniquely named database, and drop only that
 database afterward. The role needs `CREATEDB`. Tests exercise goose creation,
-repeated migration, rollback/reapply, all six repositories, reconnect persistence,
+repeated migration, rollback/reapply, all seven repositories and the overview reader, reconnect persistence,
 exact numeric boundaries and microsecond timestamps, concurrent replacement, foreign keys,
 constraints, and cancellation. Ordinary unit tests need no database.
 
@@ -110,3 +110,28 @@ The named Compose volume survives ordinary container restarts and `compose down`
 Only the explicit `-v` reset removes it. The supplied credentials are for local
 development; production provisioning, authentication, and backups remain outside
 this milestone.
+
+## Pre-production schema changes
+
+Schema updates are folded into `00001_initial.sql` until production. Instrument
+kind defaults belong to the application; the database requires an explicit valid
+asset class. There is no legacy-writer trigger or incremental overview migration.
+
+For a fresh database, run `go run ./cmd/db init`. Goose does not reapply an edited
+migration that is already recorded as version 1, and the server's version check
+cannot detect changes within that version. Databases initialized from an older
+checkout (including the former version 2 overview migration) must be handled
+explicitly before starting this server.
+
+To retain existing development data, leave the old database intact, create a
+separate database using a different `DATABASE_URL`, initialize it, and import the
+records with the current schema. When importing older instruments, supply their
+kind defaults (stock: equities, bond: bonds, crypto: crypto, funds: unclassified);
+retain any existing custom classifications and FX history. Verify the imported
+records and overview totals before switching. Keep the old database and matching
+checkout available if you need to roll back.
+
+Only use the reset commands above when intentionally discarding all local data.
+Rolling back the initial migration also deletes every feature table, including
+FX history; reapplying creates empty tables and does not restore records. No
+existing database is reset automatically.

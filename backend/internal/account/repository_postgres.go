@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mgwinsor/meridian/backend/internal/account/postgres"
 )
 
@@ -13,8 +12,8 @@ type PostgresRepository struct{ queries *postgres.Queries }
 
 var _ Repository = (*PostgresRepository)(nil)
 
-func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
-	return &PostgresRepository{queries: postgres.New(pool)}
+func NewPostgresRepository(db postgres.DBTX) *PostgresRepository {
+	return &PostgresRepository{queries: postgres.New(db)}
 }
 
 func (r *PostgresRepository) Save(ctx context.Context, account Account) error {

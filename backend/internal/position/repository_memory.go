@@ -51,3 +51,15 @@ func (r *MemoryRepository) ListByAccount(
 
 	return positions, nil
 }
+
+func (r *MemoryRepository) List(_ context.Context) ([]Position, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	rows := []Position{}
+	for _, group := range r.positions {
+		for _, row := range group {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}

@@ -144,3 +144,5 @@ func TestServiceMissingInstrument(t *testing.T) {
 		}
 	}
 }
+
+func (r *stubRepository) List(context.Context) ([]Position, error) { return []Position{}, nil }

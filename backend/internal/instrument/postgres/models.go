@@ -14,4 +14,5 @@ type Instrument struct {
 	Symbol        string
 	Name          string
 	QuoteCurrency string
+	AssetClass    string
 }

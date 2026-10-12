@@ -12,6 +12,30 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const list = `-- name: List :many
+SELECT account_id, instrument_id, quantity FROM positions ORDER BY account_id, instrument_id
+`
+
+func (q *Queries) List(ctx context.Context) ([]Position, error) {
+	rows, err := q.db.Query(ctx, list)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Position{}
+	for rows.Next() {
+		var i Position
+		if err := rows.Scan(&i.AccountID, &i.InstrumentID, &i.Quantity); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listByAccount = `-- name: ListByAccount :many
 SELECT account_id, instrument_id, quantity FROM positions WHERE account_id = $1 ORDER BY instrument_id
 `

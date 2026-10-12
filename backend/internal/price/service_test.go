@@ -127,3 +127,7 @@ func TestServiceDependencyErrors(t *testing.T) {
 		}
 	}
 }
+
+func (r *failingRepository) Latest(context.Context, []instrument.ID, time.Time) ([]Observation, error) {
+	return nil, r.err
+}

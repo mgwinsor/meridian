@@ -5,8 +5,8 @@ backend implementation. It is based on the **v1.4**
 [product design](../docs/product-design.md) and
 [architecture](../docs/architecture.md), checked against the account, cash, property,
 instrument, position, price, currency, money, and health code and the scenarios in `hurl/`.
-Contract version **0.5.0** includes the implemented property-asset slice and
-the instrument metadata, account-held position, and price observation APIs.
+Contract version **0.6.0** includes the implemented property-asset slice and
+the instrument metadata, account-held position, price observation, FX, classification, and live overview APIs.
 
 ## Flows and delivery status
 
@@ -29,8 +29,12 @@ the instrument metadata, account-held position, and price observation APIs.
 | Set a holding quantity | `PUT /api/v1/accounts/{id}/positions/{instrumentID}` | Implemented |
 | Record an instrument price observation | `POST /api/v1/instruments/{id}/prices` | Implemented |
 | View an instrument's price history | `GET /api/v1/instruments/{id}/prices` | Implemented |
+| View total assets and breakdowns | `GET /api/v1/overview?currency=USD` | Implemented |
+| Edit investment classification | `PUT /api/v1/instruments/{id}/asset-class` | Implemented |
+| Record FX | `POST /api/v1/fx-rates/{currency}` | Implemented |
+| View FX history | `GET /api/v1/fx-rates/{currency}` | Implemented |
 
-Each operation has an `x-implementation-status` marker. All seventeen operations
+Each operation has an `x-implementation-status` marker. All twenty-one operations
 are implemented and used by the frontend, including instrument discovery, account
 holdings, and price recording/history.
 Durable storage is a separate implementation concern and does not require a new
@@ -44,7 +48,7 @@ or `crypto`), trimmed nonempty symbol and name, and quote currency (exact upperc
 `USD`, `SGD`, or `VND`). Symbols retain case and punctuation; symbols and names
 need not be unique. Lists are ordered by UUID and empty lists return
 `{"instruments":[]}`. Retrieve requires a canonical lowercase hyphenated UUID.
-Instrument storage is in memory. Holdings belong to the separate position slice.
+Instrument storage is PostgreSQL. Holdings belong to the separate position slice.
 Instrument metadata contains no quantities, prices, or valuations.
 Validation order is JSON, quote currency, kind, symbol, then name. Errors use
 the existing plain-text convention. Creation is not idempotent.
@@ -78,10 +82,8 @@ repository and the existing currency/money types.
 - Values are manual current estimates without timestamps or history. This slice
   adds no liabilities, price feeds, allocation calculations, or aggregate totals.
 - Accounts are custody containers for cash and account-held positions;
-  directly owned property is not account membership. A future read-side Asset
-  projection may combine property, cash, and positions for reporting, but a
-  shared Asset interface, generic asset storage, aggregation, and FX behavior
-  remain deliberately deferred.
+  directly owned property is not account membership. The overview composes property, cash, and positions through feature repositories;
+  it introduces no generic asset storage.
 
 ## Binding decisions for this scope
 
@@ -119,7 +121,7 @@ write has success and validation examples. Handle missing accounts separately
 from empty balances. Property loading is independent of account selection. A 500 or transport failure should leave entered values
 available for correction/recovery. Cash and property-value PUT can be retried with awareness that doing so may
 overwrite another edit; account and property POST cannot be retried safely after
-an ambiguous response. The API provides no aggregate across currencies.
+an ambiguous response. The overview provides live aggregation in a reporting currency.
 
 ## Broader wealth-dashboard boundary
 
@@ -136,9 +138,8 @@ contract revision rather than guess independently:
 
 | Future flow | Decisions required before adding operations/schemas |
 | --- | --- |
-| Value instrument holdings | Price versus manually entered value; treatment of bonds and crypto; missing prices and FX |
-| See net worth in a reporting currency | Liability/sign model; reporting currencies; FX source/direction/as-of timestamp; valuation source; rounding; stale/missing-rate and missing-price behavior; whether incomplete totals may be shown |
-| Explore asset-class → currency/instrument/account allocation | Classification ownership; allowed dimensions and nesting; exclusive membership/double-count prevention; filters; grouping keys; denominator and zero-total behavior; percentage precision |
+| See net worth in a reporting currency | Liability/sign model and integration with the existing total-assets valuation |
+| Explore nested class → currency/instrument/account allocation | Drill-down dimensions, nesting, filters, and grouping beyond the existing class/currency tables |
 | Compare countries and retirement/non-retirement | Whether these classify accounts, holdings, or both; unknown/unclassified semantics; country code vocabulary and retirement membership rules |
 | Set allocation targets and inspect drift | Target scope, total-sum invariant, threshold units, comparison timing, and whether alerts are computed on read or asynchronously |
 | Inspect historical wealth | Snapshot cadence, revision policy, timestamps/timezone, range limits, and pagination |
@@ -179,7 +180,7 @@ to 20 integer and 18 fractional digits (NUMERIC(38,18)), excluding redundant zer
 Values exceeding these limits are rejected without rounding. Whitespace and redundant zeroes are normalized;
 signs, exponents, and malformed decimals are rejected. Last completed save wins.
 Storage uses PostgreSQL. The frontend supports setting and listing account holdings.
-Position valuation, cash changes, and holding history are deferred.
+The overview values positions. Cash changes and holding history are deferred.
 
 ## Price observations
 
@@ -202,5 +203,20 @@ JSON, supplied timestamp syntax, instrument existence, amount, then timestamp bo
 plain-text 400/404/500 convention.
 
 Observations append, including identical requests or timestamps; POST retries are
-not idempotent. History resets on restart. This API does not select a latest price,
-convert currency, value positions, or fetch market data. The frontend records prices and displays newest-first history with the latest observation highlighted.
+not idempotent. History persists across restarts. The overview uses feature-owned latest-price selection,
+values holdings, and converts currency; automated market data is deferred. The frontend records prices and displays newest-first history with the latest observation highlighted.
+
+## Live valuation contract
+
+Overview amounts are unbounded computed decimal strings. Instrument responses now
+require `assetClass`; creation may omit it for kind defaults. Cash/property classes
+are fixed. FX rates are positive NUMERIC(38,18) values in currency units per USD,
+independent of money precision. All current sources are read consistently in one
+repeatable-read transaction; the overview owns no duplicate storage queries.
+
+The overview schema describes cutoff/tie behavior, rounding, incomplete subtotals,
+excluded counts, zero-total percentages, deterministic ordering, and selected inputs.
+Saved historical reports, liabilities, geographic exposure, and automated feeds remain
+outside this contract. Initialize the current pre-production schema before starting
+the server; see [backend setup](../backend/README.md#pre-production-schema-changes)
+for handling databases created from older checkouts.

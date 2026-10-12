@@ -106,8 +106,41 @@ try {
   await assert.rejects(api.listPositions(missingId), missing)
   await assert.rejects(api.setPosition(account.id, missingId, '1'), missing)
   await assert.rejects(api.listPrices(missingId), missing)
-  console.log(`API integration passed through ${origin}: ${requests.length} requests covering all 17 operations.`)
-  console.log(`Created test account ${account.id}; it remains until the backend restarts.`)
+  assert.equal(instrument.assetClass, 'equities')
+  const classified = await api.setAssetClass(instrument.id, 'mixed')
+  assert.deepEqual(classified, { ...instrument, assetClass: 'mixed' })
+  assert.equal((await api.getInstrument(instrument.id)).assetClass, 'mixed')
+  const fxTime = '2020-01-01T08:00:00.123456789+08:00'
+  const fx = await api.recordFX('VND', '20000.123456789123456789', fxTime)
+  assert.deepEqual(fx, { currency: 'VND', rate: '20000.123456789123456789', observedAt: '2020-01-01T00:00:00.123456Z' })
+  assert.ok((await api.listFX('VND')).observations.some((item) => item.rate === fx.rate && item.observedAt === fx.observedAt))
+  await api.recordFX('SGD', '2')
+  await assert.rejects(api.recordFX('SGD', '0'), invalid)
+  await assert.rejects(api.recordFX('VND', '0.0000000000000000001'), invalid)
+  await assert.rejects(api.recordFX('SGD', '2', '2026-01-01T00:00:00'), invalid)
+  // A fresh held instrument has no prices, so the live report must explain its exclusion.
+  const unpriced = await api.createInstrument({ name: 'Unpriced', symbol: 'MISS', kind: 'etf', quoteCurrency: 'SGD' })
+  await api.setPosition(account.id, unpriced.id, '1.5')
+  for (const currency of ['USD', 'SGD', 'VND'] as const) {
+    const report = await api.overview(currency)
+    assert.equal(report.currency, currency)
+    assert.equal(report.complete, false)
+    const excluded = report.assets.find((item) => item.instrumentId === unpriced.id && item.accountId === account.id)
+    assert.deepEqual(excluded?.missingInputs, ['price'])
+    assert.equal(excluded?.convertedValue, undefined)
+    assert.ok(Array.isArray(report.assetClasses) && Array.isArray(report.currencies) && Array.isArray(report.fxObservations))
+    const minor = (value: string) => BigInt(value.replace('.', ''))
+    for (const rows of [report.assetClasses, report.currencies]) {
+      assert.equal(rows.reduce((sum, row) => sum + minor(row.amount), 0n), minor(report.valuedTotal))
+    }
+  }
+  await api.recordPrice(unpriced.id, '10')
+  const refreshed = await api.overview('SGD')
+  const valued = refreshed.assets.find((item) => item.instrumentId === unpriced.id && item.accountId === account.id)
+  assert.equal(valued?.convertedValue, '15.00')
+  assert.deepEqual(valued?.missingInputs, [])
+  console.log(`API integration passed through ${origin}: ${requests.length} requests covering all 21 operations.`)
+  console.log(`Created test account ${account.id}; test records persist in PostgreSQL.`)
 } finally {
   globalThis.fetch = originalFetch
 }

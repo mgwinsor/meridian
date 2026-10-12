@@ -8,6 +8,8 @@ import { Properties } from './Properties'
 import { Instruments } from './Instruments'
 import type { InstrumentCatalog } from './Instruments'
 import { Positions } from './Positions'
+import { Overview } from './Overview'
+import { FXRates } from './FXRates'
 import './App.css'
 
 function ConnectionStatus() {
@@ -175,7 +177,7 @@ function App() {
         <div><p className="eyebrow">Personal workspace</p><h1>Meridian</h1><p className="muted">Your accounts, holdings, prices, and property values.</p></div>
         <ConnectionStatus />
       </header>
-      <p className="workspace-note">This development workspace stores data in memory. Restarting the backend clears all accounts, balances, properties, instruments, holdings, and prices.</p>
+      <Overview />
       <div className="workspace">
         <section className="panel accounts" aria-label="Accounts">
           <div className="section-heading">
@@ -209,8 +211,9 @@ function App() {
           : <section className="panel empty selection"><h2>Select an account</h2><p>Choose an account to manage its cash balances and investment holdings.</p></section>}
         <Instruments catalog={catalog} />
         <Properties />
+        <FXRates />
       </div>
-      <footer>Amounts are shown in their original currency. Holdings show units held; prices do not calculate holding values. No currency conversion or combined total.</footer>
+      <footer>Total assets use current holdings and manual observations. Liabilities and historical snapshots are not included.</footer>
     </main>
   )
 }

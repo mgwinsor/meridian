@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/mgwinsor/meridian/backend/internal/assetclass"
 	"github.com/mgwinsor/meridian/backend/internal/currency"
 )
 
@@ -42,6 +43,7 @@ const (
 
 // Instrument describes an investment vehicle independently of ownership or valuation.
 type Instrument struct {
+	AssetClass    assetclass.Class
 	ID            ID
 	Kind          Kind
 	Symbol        string
@@ -66,5 +68,14 @@ func New(id ID, kind Kind, symbol, name string, quoteCurrency currency.Code) (In
 	if _, err := currency.Parse(quoteCurrency.String()); err != nil {
 		return Instrument{}, err
 	}
-	return Instrument{ID: id, Kind: kind, Symbol: symbol, Name: name, QuoteCurrency: quoteCurrency}, nil
+	class := assetclass.Unclassified
+	switch kind {
+	case KindStock:
+		class = assetclass.Equities
+	case KindBond:
+		class = assetclass.Bonds
+	case KindCrypto:
+		class = assetclass.Crypto
+	}
+	return Instrument{AssetClass: class, ID: id, Kind: kind, Symbol: symbol, Name: name, QuoteCurrency: quoteCurrency}, nil
 }

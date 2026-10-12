@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/mgwinsor/meridian/backend/internal/assetclass"
 	"github.com/mgwinsor/meridian/backend/internal/currency"
 )
 
@@ -18,11 +19,11 @@ func TestServiceLifecycle(t *testing.T) {
 		t.Fatalf("empty list: %v, %v", empty, err)
 	}
 	usd, _ := currency.Parse("USD")
-	a, err := svc.CreateInstrument(ctx, KindStock, " AAPL ", " Apple ", usd)
+	a, err := svc.CreateInstrument(ctx, KindStock, " AAPL ", " Apple ", usd, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := svc.CreateInstrument(ctx, KindStock, "AAPL", "Apple", usd)
+	b, err := svc.CreateInstrument(ctx, KindStock, "AAPL", "Apple", usd, nil)
 	if err != nil || a.ID == b.ID {
 		t.Fatalf("duplicate metadata must have independent identity: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestServiceLifecycle(t *testing.T) {
 	if _, err := svc.GetByID(ctx, NewID()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing: %v", err)
 	}
-	if _, err := svc.CreateInstrument(ctx, KindStock, "", "Apple", usd); !errors.Is(err, ErrInvalidSymbol) {
+	if _, err := svc.CreateInstrument(ctx, KindStock, "", "Apple", usd, nil); !errors.Is(err, ErrInvalidSymbol) {
 		t.Fatal(err)
 	}
 	list, _ = svc.ListInstruments(ctx)
@@ -64,7 +65,7 @@ func TestServiceRepositoryErrors(t *testing.T) {
 	svc := NewService(failingRepository{want})
 	ctx := context.Background()
 	usd, _ := currency.Parse("USD")
-	_, createErr := svc.CreateInstrument(ctx, KindStock, "AAPL", "Apple", usd)
+	_, createErr := svc.CreateInstrument(ctx, KindStock, "AAPL", "Apple", usd, nil)
 	_, getErr := svc.GetByID(ctx, NewID())
 	_, listErr := svc.ListInstruments(ctx)
 	for _, err := range []error{createErr, getErr, listErr} {
@@ -81,7 +82,7 @@ func TestMemoryRepositoryConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 40 {
 		wg.Go(func() {
-			created, err := svc.CreateInstrument(ctx, KindStock, "AAPL", "Apple", usd)
+			created, err := svc.CreateInstrument(ctx, KindStock, "AAPL", "Apple", usd, nil)
 			if err != nil {
 				t.Error(err)
 				return
@@ -99,4 +100,8 @@ func TestMemoryRepositoryConcurrentAccess(t *testing.T) {
 	if err != nil || len(list) != 40 {
 		t.Fatalf("lost concurrent writes: %d, %v", len(list), err)
 	}
+}
+
+func (r failingRepository) ReplaceAssetClass(context.Context, ID, assetclass.Class) (Instrument, error) {
+	return Instrument{}, r.err
 }

@@ -39,7 +39,7 @@ func TestHTTPLifecycle(t *testing.T) {
 		t.Fatalf("response: %+v", created)
 	}
 	var fields map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &fields); err != nil || len(fields) != 5 {
+	if err := json.Unmarshal(w.Body.Bytes(), &fields); err != nil || len(fields) != 6 {
 		t.Fatalf("unexpected fields: %v, %v", fields, err)
 	}
 	get := request(mux, "GET", "/api/v1/instruments/"+created.ID, "")
@@ -117,5 +117,43 @@ func TestHTTPRepositoryFailures(t *testing.T) {
 		if w.Code != 500 || w.Body.String() != "internal server error\n" {
 			t.Fatalf("failure leaked: %d %s", w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestAssetClassification(t *testing.T) {
+	mux := http.NewServeMux()
+	NewHandler(NewService(NewMemoryRepository())).RegisterRoutes(mux)
+	for kind, want := range map[string]string{"stock": "equities", "bond": "bonds", "crypto": "crypto", "etf": "unclassified", "mutual_fund": "unclassified"} {
+		w := request(mux, "POST", "/api/v1/instruments", strings.ReplaceAll(validBody, "stock", kind))
+		var item instrumentResponse
+		if w.Code != 201 || json.Unmarshal(w.Body.Bytes(), &item) != nil || string(item.AssetClass) != want {
+			t.Fatal(w.Body.String())
+		}
+		for _, class := range []string{"mixed", "bonds", "unclassified", "equities", "crypto"} {
+			w = request(mux, "PUT", "/api/v1/instruments/"+item.ID+"/asset-class", `{"assetClass":"`+class+`"}`)
+			var updated instrumentResponse
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &updated) != nil || string(updated.AssetClass) != class {
+				t.Fatal(w.Body.String())
+			}
+			updated.AssetClass = item.AssetClass
+			if updated != item {
+				t.Fatal("class update changed other metadata")
+			}
+		}
+		for _, class := range []string{"cash", "property", "", "invalid"} {
+			w = request(mux, "PUT", "/api/v1/instruments/"+item.ID+"/asset-class", `{"assetClass":"`+class+`"}`)
+			if w.Code != 400 {
+				t.Fatal(w.Body.String())
+			}
+		}
+	}
+	body := strings.TrimSuffix(validBody, "}") + `,"assetClass":"mixed"}`
+	w := request(mux, "POST", "/api/v1/instruments", body)
+	if w.Code != 201 || !strings.Contains(w.Body.String(), `"assetClass":"mixed"`) {
+		t.Fatal(w.Body.String())
+	}
+	w = request(mux, "PUT", "/api/v1/instruments/"+NewID().String()+"/asset-class", `{"assetClass":"mixed"}`)
+	if w.Code != 404 {
+		t.Fatal(w.Code)
 	}
 }

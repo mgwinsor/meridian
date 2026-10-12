@@ -121,3 +121,63 @@ test('does not retry investment writes after an uncertain response', async () =>
   await expect(api.setPosition('account', 'instrument', '0')).rejects.toThrow('Cannot reach the server')
   expect(fetchMock).toHaveBeenCalledTimes(3)
 })
+
+test('overview preserves oversized totals and incomplete rows in each reporting currency', async () => {
+  for (const currency of ['USD', 'SGD', 'VND'] as const) {
+    const report = { currency, complete: false, valuedTotal: '184467440737095516.14', assets: [{ source: 'position', id: 'a:i', currency: 'SGD', missingInputs: ['price'] }], assetClasses: [], currencies: [], fxObservations: [] }
+    fetchMock.mockResolvedValueOnce(Response.json(report))
+    expect(await api.overview(currency)).toEqual(report)
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/v1/overview?currency=${currency}`, expect.anything())
+  }
+})
+
+test('records exact FX rates, lists history, and updates only instrument class', async () => {
+  const observation = { currency: 'VND', rate: '99999999999999999999.999999999999999999', observedAt: '2026-01-01T00:00:00.123456Z' }
+  fetchMock.mockResolvedValueOnce(Response.json(observation))
+  expect(await api.recordFX('VND', observation.rate, observation.observedAt)).toEqual(observation)
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/fx-rates/VND', expect.objectContaining({ body: JSON.stringify({ rate: observation.rate, observedAt: observation.observedAt }), method: 'POST' }))
+  fetchMock.mockResolvedValueOnce(Response.json(observation))
+  await api.recordFX('SGD', '2')
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/fx-rates/SGD', expect.objectContaining({ body: '{"rate":"2"}' }))
+  fetchMock.mockResolvedValueOnce(Response.json({ observations: [observation] }))
+  expect(await api.listFX('VND')).toEqual({ observations: [observation] })
+  fetchMock.mockResolvedValueOnce(Response.json({ id: 'i/d', assetClass: 'mixed' }))
+  await api.setAssetClass('i/d', 'mixed')
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/instruments/i%2Fd/asset-class', expect.objectContaining({ body: '{"assetClass":"mixed"}', method: 'PUT' }))
+})
+
+test('successful valuation writes notify refresh subscribers; failed writes and reads do not', async () => {
+  const { valuationChanges } = await import('../src/api')
+  const before = valuationChanges.getSnapshot()
+  let notifications = 0
+  const unsubscribe = valuationChanges.subscribe(() => { notifications++ })
+  try {
+    fetchMock.mockResolvedValueOnce(Response.json({}))
+    await api.setCash('a', 'USD', '1')
+    fetchMock.mockResolvedValueOnce(Response.json({}))
+    await api.setPosition('a', 'i', '2')
+    fetchMock.mockResolvedValueOnce(Response.json({}))
+    await api.recordPrice('i', '10')
+    fetchMock.mockResolvedValueOnce(Response.json({}))
+    await api.recordFX('SGD', '2')
+    fetchMock.mockResolvedValueOnce(Response.json({}))
+    await api.setAssetClass('i', 'mixed')
+    fetchMock.mockResolvedValueOnce(Response.json({}))
+    await api.createProperty('Home', { currency: 'USD', amount: '1' })
+    fetchMock.mockResolvedValueOnce(Response.json({}))
+    await api.setPropertyValue('p', { currency: 'USD', amount: '2' })
+    expect(notifications).toBe(7)
+    expect(valuationChanges.getSnapshot()).toBe(before + 7)
+    fetchMock.mockResolvedValueOnce(Response.json({}))
+    await api.overview('USD')
+    fetchMock.mockResolvedValueOnce(new Response('internal server error', { status: 500 }))
+    await expect(api.recordFX('SGD', '2')).rejects.toMatchObject({ status: 500 })
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await expect(api.setAssetClass('i', 'mixed')).rejects.toThrow('Cannot reach the server')
+    expect(notifications).toBe(7)
+    expect(fetchMock).toHaveBeenCalledTimes(10)
+  } finally { unsubscribe() }
+  fetchMock.mockResolvedValueOnce(Response.json({}))
+  await api.recordFX('SGD', '2')
+  expect(notifications).toBe(7)
+})

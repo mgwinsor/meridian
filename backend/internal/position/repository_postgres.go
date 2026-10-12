@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mgwinsor/meridian/backend/internal/account"
 	"github.com/mgwinsor/meridian/backend/internal/instrument"
 	"github.com/mgwinsor/meridian/backend/internal/position/postgres"
@@ -14,8 +13,8 @@ type PostgresRepository struct{ queries *postgres.Queries }
 
 var _ Repository = (*PostgresRepository)(nil)
 
-func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
-	return &PostgresRepository{queries: postgres.New(pool)}
+func NewPostgresRepository(db postgres.DBTX) *PostgresRepository {
+	return &PostgresRepository{queries: postgres.New(db)}
 }
 
 func (r *PostgresRepository) Save(ctx context.Context, position Position) error {
@@ -30,8 +29,16 @@ func (r *PostgresRepository) ListByAccount(ctx context.Context, accountID accoun
 	if err != nil {
 		return nil, err
 	}
+	return fromRows(rows)
+}
+
+func fromRows(rows []postgres.Position) ([]Position, error) {
 	positions := make([]Position, 0, len(rows))
 	for _, row := range rows {
+		accountID, err := account.ParseID(row.AccountID.String())
+		if err != nil {
+			return nil, err
+		}
 		instrumentID, err := instrument.ParseID(row.InstrumentID.String())
 		if err != nil {
 			return nil, err
@@ -43,4 +50,12 @@ func (r *PostgresRepository) ListByAccount(ctx context.Context, accountID accoun
 		positions = append(positions, Position{AccountID: accountID, InstrumentID: instrumentID, Quantity: quantity})
 	}
 	return positions, nil
+}
+
+func (r *PostgresRepository) List(ctx context.Context) ([]Position, error) {
+	rows, err := r.queries.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromRows(rows)
 }

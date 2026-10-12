@@ -167,3 +167,5 @@ func parseAmount(t *testing.T, codeValue, amountValue string) money.Amount {
 	}
 	return amount
 }
+
+func (r *stubRepository) List(context.Context) ([]Balance, error) { return []Balance{}, nil }

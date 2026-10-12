@@ -8,9 +8,9 @@
 
 Build coherent, end-to-end product milestones on the established feature boundaries. A milestone can span several packages, API operations, and UI flows while keeping domain ownership explicit and abstractions purposeful.
 
-The current account, cash, property, instrument, position, and price application is implemented end to end. A React/TypeScript frontend uses all 17 Go HTTP operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `position`, `price`, `currency`, and `money` domain packages plus an operational `health` package. Instrument metadata has create/list/retrieve API operations, positions have account-scoped set/list operations, and price observations have instrument-scoped record/list operations. The frontend provides a shared searchable instrument catalog, account holdings, and price recording/history.
+The current account, cash, property, instrument, position, and price application is implemented end to end. A React/TypeScript frontend uses all 21 Go HTTP operations through a shared same-origin HTTP boundary. The backend contains `account`, `cash`, `property`, `instrument`, `position`, `price`, `fx`, `assetclass`, `currency`, and `money` domain packages, plus the `overview` read feature plus an operational `health` package. Instrument metadata has create/list/retrieve API operations, positions have account-scoped set/list operations, and price observations have instrument-scoped record/list operations. The frontend provides a shared searchable instrument catalog, account holdings, and price recording/history.
 
-Storage uses PostgreSQL for all six data features. Feature-owned sqlc queries and pgx repositories implement the existing interfaces; goose manages database creation and schema migrations. Broader architecture for other holdings, valuation, allocation, authentication, or deployment remains deferred. See [backend setup](../backend/README.md).
+Storage uses PostgreSQL for all seven data features. Feature-owned sqlc queries and pgx repositories implement the existing interfaces; goose manages database creation and schema migrations. Broader architecture for other holdings, historical reports, authentication, or deployment remains deferred. See [backend setup](../backend/README.md).
 
 The guiding rule is:
 
@@ -29,7 +29,7 @@ internal/money
 internal/health
 ```
 
-Hexagonal principles apply at all six feature storage boundaries. Application logic depends on feature-owned repository interfaces rather than concrete in-memory implementations. The codebase does not use a repository-wide `domain/`, `ports/`, `adapters/`, and `infrastructure/` hierarchy; feature cohesion takes priority over architecture-layer folders.
+Hexagonal principles apply at feature storage boundaries. Application logic depends on feature-owned repository interfaces rather than concrete in-memory implementations. The codebase does not use a repository-wide `domain/`, `ports/`, `adapters/`, and `infrastructure/` hierarchy; feature cohesion takes priority over architecture-layer folders.
 
 ## 3. Current backend structure
 
@@ -207,7 +207,7 @@ The HTTP API is:
 
 Create validation order is JSON, name, value object, currency, then amount. Update validation order is canonical property ID, JSON, currency, amount, then property lookup. Errors remain plain text and unexpected repository failures are not exposed.
 
-A future read-side Asset projection may combine properties, cash, and account-held positions for reporting. There is intentionally no persisted polymorphic base entity, `Asset` interface, generic asset repository, aggregation, or FX behavior in this slice.
+The overview combines properties, cash, and account-held positions for reporting through their repositories. There is no persisted polymorphic base entity, `Asset` interface, or generic asset repository.
 
 ## 7. Account slice and dependency flow
 
@@ -444,7 +444,7 @@ dates forward.
 
 During development and preview, Vite proxies `/api`, `/livez`, and `/readyz` to `http://localhost:8080` by default; `API_PROXY_TARGET` can override that target. The browser therefore uses origin-relative URLs and the Go server does not currently need CORS handling. A static production build requires the deployment host or reverse proxy to provide equivalent routing because Vite's proxy is not embedded in built assets.
 
-The frontend/backend integration is complete for the current account, cash, standalone property, instrument, position, and price scope. It does not imply that the larger wealth-dashboard reporting domain is implemented.
+The frontend/backend integration is complete for the current account, cash, standalone property, instrument, position, and price scope. The live overview additionally implements valuation, class/currency breakdowns, and manual FX.
 
 ## 15. Decisions intentionally deferred
 
@@ -452,9 +452,8 @@ The backend does not yet fix an architecture for:
 
 - `country.Code`;
 - account type, institution metadata, or retirement classification;
-- the read-side Asset projection that may combine property, cash, and positions;
-- valuation and FX;
-- portfolio grouping and allocation calculations;
+- historical saved-report persistence and reconstruction;
+- portfolio grouping and allocation drill-down;
 - authentication and authorization;
 - background workers and market-data integrations;
 - runtime configuration beyond `DATABASE_URL` and the current constants;
@@ -464,7 +463,7 @@ The backend does not yet fix an architecture for:
 
 The account, cash, property, instrument, position, and price workflows, their React interface, shared HTTP contract, PostgreSQL repositories, operational health checks, graceful shutdown, and end-to-end integration are implemented and tested.
 
-Plan the next change as a complete milestone spanning its needed layers. Position valuation, a read-side wealth projection, and allocation reporting can be designed together when they serve one user workflow. Define the valuation, FX, missing-data, and classification rules across that workflow before adding contracts or code.
+The live overview milestone is implemented as described below. The follow-up historical snapshot milestone should own saved-report persistence and reuse the valuation path; it must first define snapshot cadence and revision policy.
 
 Durable storage now covers all current records. Unit tests retain the memory implementations. PostgreSQL integration tests cover database creation, migration rollback/reapply, reconnect persistence, exact values, duplicate observations, concurrent property replacements, and foreign-key constraints. Run them using the [backend instructions](../backend/README.md).
 
@@ -489,7 +488,7 @@ primary key and replaces quantities with an atomic upsert. Unit tests retain
 the mutex-protected memory implementation. Writes are idempotent and the last
 completed save wins. HTTP responses include accountId, instrumentId, and quantity.
 The frontend provides instrument management and account holding forms.
-Position valuation, transactions, and cash adjustments remain deferred.
+The overview values positions; transactions and cash adjustments remain deferred.
 
 ## Price observation slice
 
@@ -522,6 +521,48 @@ with Go's RFC 3339 parser; all times are stored in UTC at microsecond precision.
 fractional digits are truncated. Values that truncate to zero time and UTC years outside 0000–9999 are
 invalid. Responses use RFC3339Nano with a `Z` suffix and omit trailing fractional
 zeroes. Historical and future timestamps are accepted. POST is not idempotent;
-retries append another observation. PostgreSQL retains history across restarts. Price feeds,
-position valuation, and backend latest-price selection are deferred. The frontend
+retries append another observation. PostgreSQL retains history across restarts. Automated price feeds remain deferred. The price repository owns bulk latest-price selection for the overview. The frontend
 records observations and displays newest-first history with its latest entry highlighted.
+
+## Overview composition and FX storage
+
+`overview.Service` depends on one narrow `InputReader` and calculates after the input
+snapshot has loaded. `PostgresReader` starts a read-only, repeatable-read transaction,
+invokes transaction-bound account/instrument/property list operations, cash/position
+workspace lists, price bulk latest lookup, and FX latest lookup sequentially, then
+commits. Constructors accept their generated sqlc `DBTX` contract, so pools and pgx
+transactions share the same feature repositories and domain reconstruction.
+
+The overview owns aggregation and presentation, with no source-table joins, duplicate
+queries, persistence repository, or pgx types in calculation logic. Query ownership
+stays with each source feature. `price.Latest` accepts instrument IDs and a cutoff;
+price and FX queries use observation time descending then sequence ID descending.
+`fx` owns positive decimal rates, timestamped append-only observations, service,
+memory/PostgreSQL repositories, and HTTP handlers. `assetclass` owns the vocabulary;
+instruments allow investment classes, while overview cash/property classes are fixed.
+Instrument class replacement is one atomic SQL UPDATE of that column only.
+
+Exact decimal multiplication and `DivRound` round the conversion quotient directly
+to reporting precision, avoiding intermediate division rounding. Rounded asset values
+feed totals and both breakdowns. Stored money retains int64 bounds; computed values
+do not pass through `money.Amount`. No floating-point arithmetic enters valuation.
+
+The pre-production initial migration owns the complete schema, including instrument
+classification and FX history. Defaults are supplied by the instrument constructor;
+the database validates explicit classes without a legacy-writer trigger. Goose does
+not reapply changes to an already-recorded migration. Existing development databases
+need explicit handling; see backend setup for preserving data in a separate database
+or intentionally resetting disposable data. Rolling back the initial migration drops
+all feature tables.
+
+Frontend API writes notify the overview after a successful decoded response.
+`useSyncExternalStore` tracks these writes. The report component is keyed by reporting
+currency and write revision, clearing stale data immediately; `useResource` cleanup
+ignores late responses from unmounted reports. Existing forms retain failed inputs
+and do not retry writes automatically.
+
+Database integration tests cover classification persistence, constraints, rollback/reapply,
+exact FX persistence, latest selection, transaction-bound writes/reads, and a writer
+committing between the overview's first and subsequent reads. The last test requires
+all report inputs to retain the first read's snapshot. A later saved-report feature
+should reuse this valuation path and own its own report/detail persistence.

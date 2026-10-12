@@ -12,6 +12,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const latest = `-- name: Latest :many
+SELECT DISTINCT ON (instrument_id) id, instrument_id, currency, minor_units, observed_at FROM price_observations
+WHERE instrument_id = ANY($1::uuid[]) AND observed_at <= $2
+ORDER BY instrument_id, observed_at DESC, id DESC
+`
+
+type LatestParams struct {
+	Column1    []uuid.UUID
+	ObservedAt pgtype.Timestamptz
+}
+
+func (q *Queries) Latest(ctx context.Context, arg LatestParams) ([]PriceObservation, error) {
+	rows, err := q.db.Query(ctx, latest, arg.Column1, arg.ObservedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PriceObservation{}
+	for rows.Next() {
+		var i PriceObservation
+		if err := rows.Scan(
+			&i.ID,
+			&i.InstrumentID,
+			&i.Currency,
+			&i.MinorUnits,
+			&i.ObservedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listByInstrument = `-- name: ListByInstrument :many
 SELECT id, instrument_id, currency, minor_units, observed_at FROM price_observations WHERE instrument_id = $1
 ORDER BY observed_at, id

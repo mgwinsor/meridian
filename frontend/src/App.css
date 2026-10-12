@@ -80,3 +80,11 @@ a { color: #236958; }
   .investment-form fieldset { grid-template-columns: minmax(0, 1fr); }
   .section-heading { flex-wrap: wrap; }
 }
+
+.overview { margin-bottom: 1.5rem; }
+.overview > select, .fx-rates > select { max-width: 12rem; margin-bottom: 1rem; }
+.overview-total { font-size: 1.5rem; }
+.overview table { margin-block: 1rem; }
+.overview summary { cursor: pointer; padding-block: 1rem; }
+.overview small { overflow-wrap: anywhere; font-weight: normal; }
+.fx-rates { grid-column: 1 / -1; }

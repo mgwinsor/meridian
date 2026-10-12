@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: Meridian Wealth Dashboard API
-  version: 0.5.0
+  version: 0.6.0
   description: |
-    Shared contract for the implemented price, position, instrument, account, current-cash, and property
+    Shared contract for the implemented overview, FX, price, position, instrument, account, current-cash, and property
     workflows in docs/product-design.md and docs/architecture.md (baseline
     v1.4), including the property slice described in the current domain model.
     Operation-level x-implementation-status distinguishes implemented operations
@@ -24,11 +24,11 @@ info:
     numbers. USD and SGD have two minor-unit digits; VND has zero. The maximum
     value is 9223372036854775807 minor units. Price observations record supplied
     timestamps or default to server time; cash and property remain current values without history.
-    FX conversion and inferred reporting totals are not implemented.
+    The overview computes exact reporting totals without stored-money limits. FX rates use NUMERIC(38,18).
 
     Collections are complete, unpaginated snapshots with deterministic ordering.
     No filtering, sorting parameters, or pagination parameters are supported;
-    existing handlers ignore query parameters. Empty collections return arrays,
+    the overview accepts a reporting currency; other handlers ignore query parameters. Empty collections return arrays,
     never null. Requests and resources have no semantically nullable fields.
 
     Existing handlers decode one JSON value, ignore unknown object members, and
@@ -59,12 +59,9 @@ info:
     is implicitly the asset class. Names are not unique and no physical-property
     deduplication is promised.
     Values use the existing supported currencies and exact money limits. There
-    is no ownership-percentage calculation, price feed, FX conversion, valuation
-    history, or net-worth total in this slice. Property creation, listing, and
-    value replacement are implemented and used by the frontend. A future Asset
-    read projection may combine properties, cash, and account-held positions for
-    reporting; no shared Asset interface, generic storage, aggregation, or FX
-    behavior is introduced by this contract.
+    is no ownership-percentage calculation, price feed, property valuation history,
+    or net-worth total. The live overview combines current property values, cash,
+    and priced positions in a selectable reporting currency.
 servers:
   - url: /
     description: API origin; use http://localhost:8080 for the current local Go server.
@@ -82,9 +79,163 @@ tags:
     description: Set and view current instrument holdings within an account.
   - name: Prices
     description: Record and list timestamped monetary observations of instruments.
+  - name: Overview
+    description: Live total assets and allocation from consistent feature inputs.
+  - name: FX
+    description: Manual historical currency units per USD observations.
   - name: Health
     description: Process liveness and database/shutdown readiness.
 paths:
+  /api/v1/overview:
+    get:
+      tags: [Overview]
+      operationId: getOverview
+      summary: Value all current assets in a reporting currency
+      x-implementation-status: implemented
+      security: []
+      description: |
+        Loads one read-only repeatable-read input snapshot. Each holding is quantity
+        times its latest price at or before generatedAt. Timestamp ties select the
+        last inserted observation. Observations do not expire. Cash and properties
+        use current values; this endpoint does not reconstruct historical holdings.
+        Convert native value times target USD rate divided by source USD rate.
+        Same-currency and known-zero values need no FX; zero holdings need no price.
+        Round each converted asset once, half-up, to reporting precision, then sum.
+        Missing inputs exclude the asset and make complete false; valuedTotal is
+        then a subtotal. Percentages use this subtotal and round to two decimals;
+        omit percentages at zero. Arrays are explicit and deterministically ordered.
+      parameters:
+        - name: currency
+          in: query
+          required: false
+          description: Exact uppercase reporting currency; omission defaults to USD, empty is invalid.
+          schema: {type: string, enum: [USD, SGD, VND], default: USD}
+      responses:
+        '200':
+          description: Complete or incomplete live valuation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Overview'}
+        '400':
+          description: Unsupported reporting currency.
+          content:
+            text/plain; charset=utf-8:
+              schema: {type: string, const: "unsupported currency\n"}
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/fx-rates/{currency}:
+    parameters:
+      - name: currency
+        in: path
+        required: true
+        description: Quote currency units per USD. USD is implicitly 1 and has no stored observations.
+        schema: {type: string, enum: [SGD, VND]}
+    post:
+      tags: [FX]
+      operationId: recordFXRate
+      summary: Append a manual FX observation
+      x-implementation-status: implemented
+      security: []
+      description: |
+        Preserves history, including duplicate times and values. Rates are positive
+        exact decimals with at most 20 integer and 18 fractional digits after removing
+        redundant zeroes, independently of currency precision. No signs or exponents.
+        Omitted observedAt uses server time. Supplied times require an RFC 3339 timezone,
+        normalize to UTC, and truncate to microseconds. Null, empty, zero time and UTC
+        years outside 0000–9999 are invalid. Backdated and future observations are accepted.
+        POST is not idempotent; check history before retrying an uncertain write.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rate]
+              properties:
+                rate:
+                  type: string
+                  description: Positive NUMERIC(38,18) decimal; trims whitespace and redundant zeroes without rounding.
+                  examples: ['1.35', '20000.123456789123456789']
+                observedAt: {type: string, format: date-time}
+      responses:
+        '201':
+          description: Observation appended.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FXObservation'}
+        '400':
+          description: Invalid request, currency, rate, or timestamp.
+          content:
+            text/plain; charset=utf-8:
+              schema: {type: string}
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags: [FX]
+      operationId: listFXRates
+      summary: List FX observation history
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          description: Full history ordered by timestamp then insertion order, including an explicit empty array.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [observations]
+                properties:
+                  observations:
+                    type: array
+                    items: {$ref: '#/components/schemas/FXObservation'}
+        '400':
+          description: Unsupported currency.
+          content:
+            text/plain; charset=utf-8:
+              schema: {type: string, const: "unsupported currency\n"}
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/instruments/{id}/asset-class:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    put:
+      tags: [Instruments]
+      operationId: setInstrumentAssetClass
+      summary: Replace an instrument's investment class
+      x-implementation-status: implemented
+      security: []
+      description: Atomic class-only update. Other metadata is preserved. Cash and property are fixed source classes and cannot be assigned to instruments.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assetClass]
+              properties:
+                assetClass: {$ref: '#/components/schemas/InvestmentClass'}
+      responses:
+        '200':
+          description: Updated instrument.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Instrument'}
+        '400':
+          description: Invalid ID, request, or investment class.
+          content:
+            text/plain; charset=utf-8:
+              schema: {type: string}
+        '404':
+          description: Instrument does not exist.
+          content:
+            text/plain; charset=utf-8:
+              schema: {type: string, const: "instrument not found\n"}
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /api/v1/instruments/{id}/prices:
     parameters:
       - name: id
@@ -330,7 +481,7 @@ paths:
         Symbol and name are trimmed and must remain nonempty; symbol case is
         preserved. Duplicate symbols and names are allowed. Creation is not
         idempotent and should not be retried after an ambiguous response.
-        Validation order is JSON, quote currency, kind, symbol, then name.
+        Validation order is JSON, quote currency, kind, symbol, name, then optional asset class.
         Unknown fields are ignored, never persisted. No account, position,
         quantity, price, or valuation is stored. Returns no Location header.
       x-implementation-status: implemented
@@ -359,7 +510,7 @@ paths:
             text/plain; charset=utf-8:
               schema:
                 type: string
-                enum: ["invalid request\n", "unsupported currency\n", "unsupported instrument kind\n", "instrument symbol cannot be empty\n", "instrument name cannot be empty\n"]
+                enum: ["invalid request\n", "unsupported currency\n", "unsupported instrument kind\n", "instrument symbol cannot be empty\n", "instrument name cannot be empty\n", "unsupported investment asset class\n"]
         '500':
           $ref: '#/components/responses/InternalServerError'
     get:
@@ -946,6 +1097,89 @@ components:
         pattern: '^[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*(?:[uU][sS][dD]|[sS][gG][dD]|[vV][nN][dD])[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$'
       example: USD
   schemas:
+    InvestmentClass:
+      type: string
+      enum: [equities, bonds, crypto, mixed, unclassified]
+      description: One investment class per instrument; funds are not split across classes.
+    FXObservation:
+      type: object
+      additionalProperties: false
+      required: [currency, rate, observedAt]
+      properties:
+        currency: {type: string, enum: [SGD, VND]}
+        rate:
+          type: string
+          pattern: '^(0|[1-9][0-9]{0,19})(\.[0-9]{0,17}[1-9])?$'
+          description: Canonical exact positive rate in quote-currency units per USD. Zero is invalid.
+        observedAt: {type: string, format: date-time}
+    OverviewAmount:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+      description: Exact nonnegative computed decimal, unbounded by stored money's int64 limit. Converted amounts use reporting-currency precision; native holding values may have more decimals.
+    OverviewBreakdown:
+      type: object
+      additionalProperties: false
+      required: [key, amount, excludedAssets]
+      properties:
+        key: {type: string, description: Asset class or original currency group.}
+        amount: {$ref: '#/components/schemas/OverviewAmount'}
+        percentage:
+          type: string
+          pattern: '^[0-9]+\.[0-9]{2}$'
+          description: Percent of valued subtotal, rounded half-up to two decimals; omitted at zero total. Percentages may not sum to 100.
+        excludedAssets: {type: integer, minimum: 0}
+    OverviewAsset:
+      type: object
+      additionalProperties: false
+      required: [source, id, name, assetClass, currency, missingInputs]
+      properties:
+        source: {type: string, enum: [cash, position, property]}
+        id: {type: string, description: 'Source key: account:currency for cash, account:instrument for positions, property UUID for properties.'}
+        accountId: {type: string, format: uuid}
+        instrumentId: {type: string, format: uuid}
+        name: {type: string}
+        assetClass: {type: string, enum: [cash, equities, bonds, property, crypto, mixed, unclassified]}
+        currency: {type: string, enum: [USD, SGD, VND], description: Original denomination or investment quote currency; not geographic exposure.}
+        quantity: {type: string, description: Exact units for positions only.}
+        nativeValue: {$ref: '#/components/schemas/OverviewAmount'}
+        convertedValue: {$ref: '#/components/schemas/OverviewAmount'}
+        price:
+          type: object
+          additionalProperties: false
+          required: [amount, currency, observedAt]
+          properties:
+            amount: {$ref: '#/components/schemas/OverviewAmount'}
+            currency: {type: string, enum: [USD, SGD, VND]}
+            observedAt: {type: string, format: date-time}
+        missingInputs:
+          type: array
+          description: Empty for valued assets. Price is reported first when unknown; required FX is evaluated once native value is known. Unavailable values and price are omitted.
+          items: {type: string, enum: [price, 'fx:SGD', 'fx:VND']}
+    Overview:
+      type: object
+      additionalProperties: false
+      required: [currency, generatedAt, complete, valuedTotal, assets, assetClasses, currencies, fxObservations]
+      properties:
+        currency: {type: string, enum: [USD, SGD, VND]}
+        generatedAt: {type: string, format: date-time}
+        complete: {type: boolean}
+        valuedTotal: {$ref: '#/components/schemas/OverviewAmount'}
+        assets:
+          type: array
+          description: Ordered by source then source ID, each current source counted once.
+          items: {$ref: '#/components/schemas/OverviewAsset'}
+        assetClasses:
+          type: array
+          description: Represented classes ordered by key; amounts reconcile to valuedTotal.
+          items: {$ref: '#/components/schemas/OverviewBreakdown'}
+        currencies:
+          type: array
+          description: Represented original/quote currencies ordered by key; amounts reconcile to valuedTotal.
+          items: {$ref: '#/components/schemas/OverviewBreakdown'}
+        fxObservations:
+          type: array
+          description: Only observations used in successful conversions, ordered by currency. USD is implicit.
+          items: {$ref: '#/components/schemas/FXObservation'}
     RecordPriceObservationRequest:
       type: object
       additionalProperties: true
@@ -1034,9 +1268,12 @@ components:
       description: Investment vehicle kind; values are case-sensitive.
     CreateInstrumentRequest:
       type: object
+      description: Omitted assetClass defaults stocks to equities, bonds to bonds, crypto to crypto, and ETFs/mutual funds to unclassified.
       additionalProperties: true
       required: [kind, symbol, name, quoteCurrency]
       properties:
+        assetClass:
+          $ref: '#/components/schemas/InvestmentClass'
         kind:
           $ref: '#/components/schemas/InstrumentKind'
         symbol:
@@ -1054,9 +1291,11 @@ components:
     Instrument:
       type: object
       additionalProperties: false
-      required: [id, kind, symbol, name, quoteCurrency]
+      required: [id, kind, symbol, name, quoteCurrency, assetClass]
       description: Investment vehicle metadata with no account association, position, quantity, price, or valuation.
       properties:
+        assetClass:
+          $ref: '#/components/schemas/InvestmentClass'
         id:
           type: string
           format: uuid

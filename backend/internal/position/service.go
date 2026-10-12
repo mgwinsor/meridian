@@ -17,6 +17,7 @@ type InstrumentFinder interface {
 }
 
 type Repository interface {
+	List(context.Context) ([]Position, error)
 	Save(ctx context.Context, position Position) error
 	ListByAccount(ctx context.Context, accountID account.ID) ([]Position, error)
 }
